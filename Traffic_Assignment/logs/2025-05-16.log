@@ -108,3 +108,53 @@
 2025-05-16 14:11:19,460 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
 2025-05-16 14:11:19,469 - INFO - Saved LSTM model to models/lstm_site_2000.h5
 2025-05-16 14:11:19,469 - INFO - Training GRU model
+2025-05-16 14:17:54,120 - INFO - GRU model metrics: {'loss': 0.0018854165682569146, 'mae': 0.03184894099831581}
+2025-05-16 14:17:54,684 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 14:17:54,692 - INFO - Saved GRU model to models/gru_site_2000.h5
+2025-05-16 14:17:54,692 - INFO - Model training completed
+2025-05-16 14:17:54,733 - ERROR - Error predicting traffic: Input 0 of layer "functional_1" is incompatible with the layer: expected shape=(None, 96, 1), found shape=(32, 12)
+2025-05-16 14:20:04,085 - INFO - Starting TBRGS application
+2025-05-16 14:20:04,915 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 14:20:11,415 - INFO - Starting model training
+2025-05-16 14:20:11,416 - INFO - Loading data
+2025-05-16 14:20:12,012 - INFO - Found 40 unique sites
+2025-05-16 14:20:12,012 - INFO - Training models for site 2820
+2025-05-16 14:20:12,015 - INFO - Training LSTM model
+2025-05-16 14:22:42,687 - INFO - LSTM model metrics: {'loss': 0.0017744844080880284, 'mae': 0.03035411424934864}
+2025-05-16 14:22:43,201 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 14:22:43,210 - INFO - Saved LSTM model to models/lstm_site_2820.h5
+2025-05-16 14:22:43,210 - INFO - Training GRU model
+2025-05-16 14:25:35,974 - INFO - GRU model metrics: {'loss': 0.002383273094892502, 'mae': 0.03398493677377701}
+2025-05-16 14:25:36,411 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 14:25:36,417 - INFO - Saved GRU model to models/gru_site_2820.h5
+2025-05-16 14:25:36,417 - INFO - Model training completed
+2025-05-16 14:27:52,263 - INFO - Starting TBRGS application
+2025-05-16 14:27:53,099 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 14:27:59,047 - INFO - Starting model training
+2025-05-16 14:27:59,048 - INFO - Loading data
+2025-05-16 14:27:59,628 - INFO - Found 40 unique sites
+2025-05-16 14:27:59,628 - INFO - Training models for site 2000
+2025-05-16 14:27:59,632 - INFO - Training LSTM model
+2025-05-16 14:49:02,581 - INFO - LSTM model metrics: {'loss': 0.0019916414748877287, 'mae': 0.03244057297706604}
+2025-05-16 14:49:03,221 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 14:49:03,230 - INFO - Saved LSTM model to models/lstm_site_2000.h5
+2025-05-16 14:49:03,230 - INFO - Training GRU model
+2025-05-16 14:54:43,516 - INFO - GRU model metrics: {'loss': 0.002067130757495761, 'mae': 0.0330524705350399}
+2025-05-16 14:54:44,068 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 14:54:44,078 - INFO - Saved GRU model to models/gru_site_2000.h5
+2025-05-16 14:54:44,078 - INFO - Model training completed
+2025-05-16 14:58:26,804 - INFO - Starting TBRGS application
+2025-05-16 14:58:27,627 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 14:58:34,808 - INFO - Starting model training
+2025-05-16 14:58:34,808 - INFO - Loading data
+2025-05-16 14:58:35,398 - INFO - Found 40 unique sites
+2025-05-16 14:58:35,398 - INFO - Training models for site 2820
+2025-05-16 14:58:35,401 - INFO - Training LSTM model
+2025-05-16 15:02:13,275 - INFO - LSTM model metrics: {'loss': 0.0021897212136536837, 'mae': 0.03234338015317917}
+2025-05-16 15:02:13,900 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 15:02:13,910 - INFO - Saved LSTM model to models/lstm_site_2820.h5
+2025-05-16 15:02:13,910 - INFO - Training GRU model
+2025-05-16 15:05:56,301 - INFO - GRU model metrics: {'loss': 0.002188956132158637, 'mae': 0.032485898584127426}
+2025-05-16 15:05:56,813 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 15:05:56,822 - INFO - Saved GRU model to models/gru_site_2820.h5
+2025-05-16 15:05:56,823 - INFO - Model training completed

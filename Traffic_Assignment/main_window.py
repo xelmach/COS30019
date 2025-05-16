@@ -523,11 +523,10 @@ class MainWindow(QMainWindow):
             # Convert site_id to string for consistent comparison
             site_id = str(site_id)
             
-            # Get data for the selected site
-            site_data = self.df[self.df['site_id'].astype(str) == site_id].copy()
+            # Get data for the selected site - only get the most recent data
+            site_data = self.df[self.df['site_id'].astype(str) == site_id].tail(96).copy()
             
             print(f"\nDebug - Prediction for site {site_id}:")
-            print(f"DataFrame shape: {self.df.shape}")
             print(f"Site data rows found: {len(site_data)}")
             
             if len(site_data) == 0:
@@ -541,29 +540,28 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", "No time-based columns found in the data")
                 return
             
-            print(f"Found {len(time_columns)} time columns")
-            
-            # Convert time columns to numeric values and normalize
-            for col in time_columns:
-                site_data[col] = pd.to_numeric(site_data[col], errors='coerce')
-            
-            # Prepare data for prediction
-            window_size = 12  # Using the same window size as the GRU model
+            # Convert time columns to numeric values and normalize - do it all at once
             data = site_data[time_columns].values.flatten()
+            data = pd.to_numeric(data, errors='coerce')
+            
+            # Remove any NaN values
+            data = data[~np.isnan(data)]
+            
+            if len(data) < 96:
+                QMessageBox.warning(self, "Error", "Not enough data points for prediction")
+                return
             
             # Normalize the data
             scaler = MinMaxScaler()
             normalized_data = scaler.fit_transform(data.reshape(-1, 1))
             
-            # Create sequences for prediction
-            X = []
-            for i in range(len(normalized_data) - window_size):
-                X.append(normalized_data[i:i + window_size])
-            X = np.array(X)
-            X = X.reshape((X.shape[0], X.shape[1], 1))
+            # Prepare for multi-step prediction
+            horizon_steps = self.horizon_spin.value() * 4  # 4 steps per hour (15-min intervals)
+            predictions = []
+            current_input = normalized_data[-96:].reshape(1, 96, 1)
             
             # Load and use the GRU model
-            model_path = f"models/gru_site_{site_id}.h5"  # Changed from gru_model_scats to gru_site
+            model_path = f"models/gru_site_{site_id}.h5"
             if not os.path.exists(model_path):
                 QMessageBox.warning(
                     self,
@@ -574,28 +572,35 @@ class MainWindow(QMainWindow):
             
             model = tf.keras.models.load_model(model_path, compile=False)
             
-            # Make predictions
-            predictions = model.predict(X)
+            # Recursively predict for the horizon
+            for _ in range(horizon_steps):
+                pred = model.predict(current_input, verbose=0)
+                predictions.append(pred[0, 0])
+                # Update input: remove first, append new prediction
+                current_input = np.roll(current_input, -1, axis=1)
+                current_input[0, -1, 0] = pred[0, 0]
             
             # Inverse transform predictions
+            predictions = np.array(predictions).reshape(-1, 1)
             predictions = scaler.inverse_transform(predictions)
             
-            # Plot the predictions
-            plt.figure(figsize=(10, 6))
-            plt.plot(range(len(predictions)), predictions, 'b-', label='Predicted')
-            plt.title(f'Traffic Prediction for Site {site_id}')
-            plt.xlabel('Time Step')
-            plt.ylabel('Traffic Volume')
-            plt.legend()
+            # Plot the prediction
+            plt.figure(figsize=(12, 6))
+            plt.plot(range(len(predictions)), predictions, 'b-', linewidth=2, label='Predicted Traffic')
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.title(f'Traffic Prediction for Site {site_id}', fontsize=14, pad=15)
+            plt.xlabel('Time Steps (15-minute intervals)', fontsize=12)
+            plt.ylabel('Traffic Volume', fontsize=12)
+            plt.legend(fontsize=10)
             plt.tight_layout()
-            
-            # Save plot to a temporary file
             temp_file = 'temp_prediction.png'
-            plt.savefig(temp_file)
+            plt.savefig(temp_file, dpi=300, bbox_inches='tight')
             plt.close()
             
-            # Display the plot in the QLabel
-            self.prediction_label.setPixmap(QPixmap(temp_file))
+            # Display the plot in the QLabel with proper scaling
+            pixmap = QPixmap(temp_file)
+            scaled_pixmap = pixmap.scaled(self.prediction_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.prediction_label.setPixmap(scaled_pixmap)
             
             # Show prediction summary
             avg_prediction = np.mean(predictions)
