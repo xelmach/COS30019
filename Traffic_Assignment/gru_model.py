@@ -1,4 +1,5 @@
 #105106819 Suman Sutparai
+# GRU model for TBRGS
 import tensorflow as tf
 from base_model import BaseModel
 import numpy as np

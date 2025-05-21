@@ -1,8 +1,5 @@
-"""
-Data processor for TBRGS.
-"""
-
 #105106819 Suman Sutparai
+# Data processor for TBRGS
 import os
 import pandas as pd
 import numpy as np
@@ -199,32 +196,21 @@ class DataProcessor:
         Returns:
             tuple: (X_train, y_train), (X_val, y_val), (X_test, y_test)
         """
-        if X is None or y is None or len(X) == 0 or len(y) == 0:
-            print("No data to split")
-            return (np.array([]), np.array([])), (np.array([]), np.array([])), (np.array([]), np.array([]))
-            
-        if train_ratio is None:
-            train_ratio = 0.8
-        if val_ratio is None:
-            val_ratio = 0.1
-            
         n = len(X)
-        train_end = int(n * train_ratio)
-        val_end = int(n * (train_ratio + val_ratio))
+        train_size = int(n * train_ratio)
+        val_size = int(n * val_ratio)
         
-        # Ensure we have at least one sample in each set
-        if train_end == 0:
-            train_end = 1
-        if val_end <= train_end:
-            val_end = train_end + 1
-            
-        X_train, y_train = X[:train_end], y[:train_end]
-        X_val, y_val = X[train_end:val_end], y[train_end:val_end]
-        X_test, y_test = X[val_end:], y[val_end:]
+        X_train = X[:train_size]
+        y_train = y[:train_size]
         
-        print(f"Split data into {len(X_train)} training, {len(X_val)} validation, and {len(X_test)} test samples")
+        X_val = X[train_size:train_size + val_size]
+        y_val = y[train_size:train_size + val_size]
+        
+        X_test = X[train_size + val_size:]
+        y_test = y[train_size + val_size:]
+        
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
-
+        
     def build_graph(self, df, coordinates):
         """Build a graph from SCATS site data.
         

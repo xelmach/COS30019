@@ -1,14 +1,12 @@
 """
-Configuration loader for TBRGS.
-"""
-
 #105106819 Suman Sutparai
+# Config loader for TBRGS
 import json
 import os
 from pathlib import Path
 
 class ConfigLoader:
-    """Configuration loader for the TBRGS application."""
+    """Configuration loader for TBRGS app."""
     
     def __init__(self):
         """Initialize the configuration loader."""
@@ -33,9 +31,9 @@ class ConfigLoader:
         """Get model-specific configuration."""
         return self.config.get('model', {}).get(model_type, {})
     
-    def get_data_config(self):
-        """Get data processing configuration."""
-        return self.config.get('data', {})
+    def get_ml_config(self):
+        """Get machine learning configuration."""
+        return self.config.get('ml', {})
     
     def get_gui_config(self):
         """Get GUI configuration."""

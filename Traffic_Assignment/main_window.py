@@ -1,13 +1,10 @@
-"""
-Main window for the TBRGS GUI.
-"""
-
 #105106819 Suman Sutparai
+# Main window for TBRGS
 import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QSpinBox,
-    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar
+    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QObject, pyqtSignal
 from PyQt5.QtGui import QPixmap
@@ -79,25 +76,36 @@ class MainWindow(QMainWindow):
         self.logger = setup_logger()
         self.setWindowTitle("Traffic-based Route Guidance System (TBRGS)")
         
-        # Set window size from config
-        window_size = self.config.get_gui_config().get('window_size', '1200x800')
-        width, height = map(int, window_size.split('x'))
-        self.setGeometry(100, 100, width, height)
+        # Get the screen size and set window to cover entire screen
+        screen = QApplication.primaryScreen().geometry()
+        self.setGeometry(0, 0, screen.width(), screen.height())
         
+        # Main layout with more padding
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
+        self.layout.setContentsMargins(24, 24, 24, 24)
+        self.layout.setSpacing(18)
+        
+        # App title at the top
+        self.title_label = QLabel("Traffic-based Route Guidance System (TBRGS)")
+        self.title_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #888; margin-bottom: 12px;")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.title_label)
         
         # Create tab widget
         self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("QTabWidget::pane { border-radius: 12px; padding: 8px; }")
         self.layout.addWidget(self.tab_widget)
         
-        # Create tabs
+        # Create all tabs first
+        print("Creating tabs...")
         self.tab_widget.addTab(self._create_route_tab(), "Route Planning")
         self.tab_widget.addTab(self._create_prediction_tab(), "Traffic Prediction")
         self.tab_widget.addTab(self._create_settings_tab(), "Settings")
         
         # Initialize route finder
+        print("Initializing route finder...")
         self.route_finder = RouteFinder(self.config)
         if edges and coordinates:
             print("\nInitializing route finder with graph data...")
@@ -106,10 +114,20 @@ class MainWindow(QMainWindow):
             self.route_finder.build_graph(edges, coordinates)
         
         # Initialize site dropdowns
+        print("Initializing site dropdowns...")
         self._initialize_sites()
         
         # Initialize progress signal
         self.progress = TrainingProgress()
+        
+        # Set dark theme as default
+        if hasattr(self, 'theme_combo'):
+            self.theme_combo.setCurrentText("Dark")
+            self.apply_theme("Dark")
+        
+        # Show the window after everything is initialized
+        print("Showing main window...")
+        self.show()
         
     def _initialize_sites(self):
         """Initialize site dropdowns."""
@@ -154,6 +172,10 @@ class MainWindow(QMainWindow):
                 self.site_combo.setCurrentIndex(0)
                 print(f"Default site: {self.site_combo.currentText()}")
                 
+            # Set styles
+            self.origin_combo.setStyleSheet("QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #232629; padding: 6px 12px; font-size: 16px; } QComboBox::drop-down { border: none; background: transparent; } QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }")
+            self.dest_combo.setStyleSheet("QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #232629; padding: 6px 12px; font-size: 16px; } QComboBox::drop-down { border: none; background: transparent; } QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }")
+            
         except Exception as e:
             print(f"Error initializing sites: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error initializing sites: {str(e)}")
@@ -218,38 +240,80 @@ class MainWindow(QMainWindow):
         self.map_widget.setHtml(data.getvalue().decode())
         
     def _create_route_tab(self):
-        """Create the route planning tab."""
         widget = QWidget()
+        widget.setStyleSheet("background: #232629;")
         layout = QVBoxLayout(widget)
-        
-        # Origin selection
-        origin_layout = QHBoxLayout()
+        layout.setSpacing(16)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        # Card-like, dark, rounded controls area
+        controls_frame = QFrame()
+        controls_frame.setStyleSheet("QFrame { background: #232629; border-radius: 18px; padding: 32px 32px 24px 32px; }")
+        controls_layout = QVBoxLayout(controls_frame)
+        controls_layout.setSpacing(18)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Origin selection (card style)
+        origin_card = QFrame()
+        origin_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 8px 24px; }")
+        origin_layout = QHBoxLayout(origin_card)
+        origin_layout.setContentsMargins(0, 0, 0, 0)
         origin_label = QLabel("Origin Site:")
         self.origin_combo = QComboBox()
+        self.origin_combo.setMinimumHeight(36)
         origin_layout.addWidget(origin_label)
         origin_layout.addWidget(self.origin_combo)
-        layout.addLayout(origin_layout)
-        
-        # Destination selection
-        dest_layout = QHBoxLayout()
+        controls_layout.addWidget(origin_card)
+
+        # Destination selection (card style)
+        dest_card = QFrame()
+        dest_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 8px 24px; }")
+        dest_layout = QHBoxLayout(dest_card)
+        dest_layout.setContentsMargins(0, 0, 0, 0)
         dest_label = QLabel("Destination Site:")
         self.dest_combo = QComboBox()
+        self.dest_combo.setMinimumHeight(36)
         dest_layout.addWidget(dest_label)
         dest_layout.addWidget(self.dest_combo)
-        layout.addLayout(dest_layout)
-        
-        # Find routes button
+        controls_layout.addWidget(dest_card)
+
+        # Find routes button (full width, bright, rounded)
         find_routes_btn = QPushButton("Find Routes")
+        find_routes_btn.setMinimumHeight(54)
+        find_routes_btn.setMaximumHeight(62)
+        from PyQt5.QtWidgets import QSizePolicy
+        find_routes_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        find_routes_btn.setStyleSheet("QPushButton { background-color: #888; color: #fff; font-size: 17px; font-weight: 600; border-radius: 10px; padding: 10px 0; margin-top: 18px; border: none; transition: background 0.2s; } QPushButton:hover { background-color: #aaa; } QPushButton:pressed { background-color: #555; }")
         find_routes_btn.clicked.connect(self._find_routes)
-        layout.addWidget(find_routes_btn)
-        
-        # Map view
+        controls_layout.addWidget(find_routes_btn)
+
+        layout.addWidget(controls_frame)
+
+        # Map view and route summary side by side
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setStyleSheet("QSplitter { background: #232629; }")
         self.map_view = QWebEngineView()
-        layout.addWidget(self.map_view)
-        
+        splitter.addWidget(self.map_view)
+
+        # Route summary card
+        summary_card = QFrame()
+        summary_card.setStyleSheet("QFrame { background: #232629; border-radius: 16px; border: 1.5px solid #888; padding: 0; }")
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        self.route_summary = QTextEdit()
+        self.route_summary.setReadOnly(True)
+        self.route_summary.setStyleSheet("QTextEdit { background: #232629; color: #f0f0f0; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
+        self.route_summary.setMinimumWidth(320)
+        self.route_summary.setMaximumWidth(480)
+        self.route_summary.setHtml('<span style="color:#888;font-size:15px;">Route summary will appear here after you search for routes.</span>')
+        summary_layout.addWidget(self.route_summary)
+        splitter.addWidget(summary_card)
+        splitter.setSizes([900, 350])
+        layout.addWidget(splitter)
+
         # Initialize map with default view of Melbourne
         self._initialize_map()
-        
+
         return widget
         
     def _initialize_map(self):
@@ -267,7 +331,8 @@ class MainWindow(QMainWindow):
                 folium.Marker(
                     [row['NB_LATITUDE'], row['NB_LONGITUDE']],
                     tooltip=f"Site: {row['site_id']}",
-                    popup=f"Location: {row['Location']}"
+                    popup=f"Location: {row['Location']}",
+                    icon=folium.Icon(color='gray')
                 ).add_to(m)
             
             # Save and display map
@@ -280,50 +345,433 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"Error initializing map: {str(e)}")
         
     def _create_prediction_tab(self):
-        """Create the traffic prediction tab."""
         widget = QWidget()
-        layout = QVBoxLayout(widget)
-        
-        # Site selection
-        site_layout = QHBoxLayout()
+        layout = QHBoxLayout(widget)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Left side: Controls panel (transparent)
+        controls_panel = QFrame()
+        controls_panel.setStyleSheet("QFrame { background: transparent; }")
+        controls_panel.setFixedWidth(380)
+        controls_panel_layout = QVBoxLayout(controls_panel)
+        controls_panel_layout.setContentsMargins(24, 4, 24, 24)  # Add space between border and card (left, top, right, bottom)
+        controls_panel_layout.setSpacing(0)
+        controls_panel_layout.addStretch(1)
+
+        # Card-like, dark, rounded controls area for prediction tab
+        controls_card = QFrame()
+        controls_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 18px; padding: 32px 32px 24px 32px; }")
+        controls_card_layout = QVBoxLayout(controls_card)
+        controls_card_layout.setSpacing(18)
+        controls_card_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Site selection (card style)
+        site_card = QFrame()
+        site_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 4px 24px 16px 24px; margin-top: 2px; }")
+        site_layout = QVBoxLayout(site_card)
+        site_layout.setContentsMargins(0, 0, 0, 0)
+        site_layout.setSpacing(12)
         site_label = QLabel("Site:")
+        site_label.setStyleSheet("font-weight: 600; font-size: 17px; color: #f0f0f0; margin: 0 0 1px 0; padding-top: 1px; padding-bottom: 1px;")
+        site_label.setAlignment(Qt.AlignCenter)
+        site_label.setWordWrap(True)
         self.site_combo = QComboBox()
+        self.site_combo.setMinimumHeight(36)
+        self.site_combo.setStyleSheet(
+            "QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
+            "QComboBox::drop-down { border: none; background: transparent; }"
+            "QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }"
+        )
         site_layout.addWidget(site_label)
         site_layout.addWidget(self.site_combo)
-        layout.addLayout(site_layout)
-        
-        # Prediction horizon
-        horizon_layout = QHBoxLayout()
+        controls_card_layout.addWidget(site_card)
+
+        # Prediction horizon (card style)
+        horizon_card = QFrame()
+        horizon_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 12px 12px 24px 12px; }")
+        horizon_layout = QVBoxLayout(horizon_card)
+        horizon_layout.setContentsMargins(0, 0, 0, 0)
+        horizon_layout.setSpacing(8)
         horizon_label = QLabel("Prediction Horizon (hours):")
+        horizon_label.setStyleSheet("font-weight: 600; font-size: 16px; color: #f0f0f0; margin: 0 0 8px 0; padding-top: 1px; padding-bottom: 1px;")
         self.horizon_spin = QSpinBox()
         self.horizon_spin.setRange(1, 24)
         self.horizon_spin.setValue(1)
+        self.horizon_spin.setMinimumHeight(36)
+        self.horizon_spin.setStyleSheet(
+            "QSpinBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
+        )
         horizon_layout.addWidget(horizon_label)
         horizon_layout.addWidget(self.horizon_spin)
-        layout.addLayout(horizon_layout)
-        
-        # Predict button
+        controls_card_layout.addWidget(horizon_card)
+
+        # Predict button (compact, full width)
         predict_btn = QPushButton("Predict Traffic")
+        predict_btn.setMinimumHeight(54)
+        predict_btn.setMinimumWidth(0)
+        predict_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         predict_btn.clicked.connect(self._predict_traffic)
-        layout.addWidget(predict_btn)
-        
-        # Prediction results
-        self.prediction_label = QLabel("Prediction results will appear here")
-        layout.addWidget(self.prediction_label)
-        
+        controls_card_layout.addWidget(predict_btn)
+        controls_card_layout.addStretch(1)
+
+        # Add the card to the panel, centered vertically
+        controls_panel_layout.addWidget(controls_card, alignment=Qt.AlignTop)
+        controls_panel_layout.addStretch(2)
+
+        # Right side: Graph and Summary
+        right_panel = QFrame()
+        right_panel.setStyleSheet("QFrame { background: transparent; }")
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setSpacing(32)
+        right_layout.setContentsMargins(0, 32, 32, 32)
+
+        # Graph card
+        graph_card = QFrame()
+        graph_card.setStyleSheet(
+            "QFrame { background: #232629; border-radius: 16px; border: 1.5px solid #888; padding: 0; margin-bottom: 24px; }"
+        )
+        graph_layout = QVBoxLayout(graph_card)
+        graph_layout.setContentsMargins(0, 0, 0, 0)
+        graph_layout.setSpacing(0)
+        self.prediction_label = QLabel()
+        self.prediction_label.setAlignment(Qt.AlignCenter)
+        self.prediction_label.setMinimumHeight(400)
+        self.prediction_label.setStyleSheet(
+            "QLabel { "
+            "background: #232629; "
+            "color: #b0b0b0; "
+            "border: none; "
+            "border-radius: 14px; "
+            "font-size: 18px; "
+            "padding: 24px 32px 32px 32px; "
+            "}"
+        )
+        self.prediction_label.setText('<div style="color:#888;font-size:18px;line-height:1.6;">\n<span style="font-size:48px;">📈</span><br>Click "Predict Traffic" to generate a prediction.</div>')
+        graph_layout.addWidget(self.prediction_label)
+        right_layout.addWidget(graph_card)
+
+        # Summary card
+        summary_card = QFrame()
+        summary_card.setStyleSheet(
+            "QFrame { background: #232629; border-radius: 16px; border: 1.5px solid #888; padding: 0; }"
+        )
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        self.prediction_summary = QTextEdit()
+        self.prediction_summary.setReadOnly(True)
+        self.prediction_summary.setStyleSheet(
+            "QTextEdit { background: #232629; color: #f0f0f0; border-radius: 14px; font-size: 16px; padding: 24px; margin: 0; border: none; }"
+        )
+        self.prediction_summary.setMinimumHeight(200)
+        self.prediction_summary.setHtml('<div style="color:#888;font-size:16px;">Prediction summary will appear here after you run a prediction.</div>')
+        summary_layout.addWidget(self.prediction_summary)
+        right_layout.addWidget(summary_card)
+
+        # Progress bar for training (styled to blend in)
+        self.training_progress_bar = QProgressBar()
+        self.training_progress_bar.setMinimum(0)
+        self.training_progress_bar.setMaximum(100)
+        self.training_progress_bar.setValue(0)
+        self.training_progress_bar.setTextVisible(True)
+        self.training_progress_bar.setVisible(False)
+        self.training_progress_bar.setStyleSheet(
+            "QProgressBar { border: 1px solid #3daee9; border-radius: 8px; text-align: center; height: 16px; font-size: 14px; margin: 24px 48px 24px 48px; background: #232629; color: #f0f0f0; }"
+            "QProgressBar::chunk { background-color: #3daee9; border-radius: 8px; }"
+        )
+        right_layout.addWidget(self.training_progress_bar)
+
+        # Add panels to main layout
+        layout.addWidget(controls_panel)
+        layout.addWidget(right_panel)
+        layout.setStretch(0, 3)  # controls_panel: 30%
+        layout.setStretch(1, 7)  # right_panel: 70%
+
         return widget
         
     def _create_settings_tab(self):
-        """Create the settings tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Add settings controls here
-        settings_label = QLabel("Settings will be implemented here")
-        layout.addWidget(settings_label)
-        
+        layout.setSpacing(16)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        # Theme selection
+        theme_layout = QHBoxLayout()
+        theme_label = QLabel("Theme:")
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Light", "Dark"])
+        self.theme_combo.currentTextChanged.connect(self.apply_theme)
+        theme_layout.addWidget(theme_label)
+        theme_layout.addWidget(self.theme_combo)
+        layout.addLayout(theme_layout)
+
         return widget
-        
+
+    def apply_theme(self, theme_name):
+        """Apply the selected theme to the application."""
+        if theme_name == "Dark":
+            dark_stylesheet = """
+                QWidget {
+                    background-color: #232629;
+                    color: #f0f0f0;
+                    font-family: 'Arial', 'Helvetica', 'sans-serif';
+                    font-size: 15px;
+                }
+                QFrame[card="true"] {
+                    background: #232b33;
+                    border-radius: 18px;
+                    border: 1.5px solid #888;
+                    margin: 0 0 18px 0;
+                }
+                QLabel[heading="true"] {
+                    font-size: 22px;
+                    font-weight: bold;
+                    color: #888;
+                    margin-bottom: 10px;
+                }
+                QLineEdit, QComboBox, QSpinBox, QTableWidget, QTabWidget::pane, QProgressBar {
+                    background-color: #31363b;
+                    color: #f0f0f0;
+                    border-radius: 8px;
+                    border: 1.5px solid #888;
+                    padding: 6px 12px;
+                    font-size: 16px;
+                }
+                QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                    border: 2px solid #888;
+                    background-color: #232b33;
+                }
+                QComboBox::down-arrow {
+                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-down.svg);
+                    width: 16px;
+                    height: 16px;
+                }
+                QComboBox::drop-down {
+                    subcontrol-origin: padding;
+                    subcontrol-position: top right;
+                    width: 32px;
+                    border-left-width: 1px;
+                    border-left-color: #888;
+                    border-left-style: solid;
+                    border-top-right-radius: 8px;
+                    border-bottom-right-radius: 8px;
+                }
+                QSpinBox::up-arrow, QSpinBox::down-arrow {
+                    width: 18px;
+                    height: 18px;
+                }
+                QSpinBox::up-button, QSpinBox::down-button {
+                    min-width: 20px;
+                    min-height: 20px;
+                    width: 20px;
+                    height: 20px;
+                    margin: 1px;
+                    padding: 0px;
+                }
+                QSpinBox::up-arrow {
+                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-up.svg);
+                }
+                QSpinBox::down-arrow {
+                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-down.svg);
+                }
+                QPushButton {
+                    background-color: #888;
+                    color: #fff;
+                    font-size: 17px;
+                    font-weight: 600;
+                    border-radius: 10px;
+                    padding: 10px 0;
+                    margin-top: 8px;
+                    border: none;
+                    transition: background 0.2s;
+                }
+                QPushButton:hover {
+                    background-color: #aaa;
+                }
+                QPushButton:pressed {
+                    background-color: #555;
+                }
+                QTabBar::tab {
+                    background: #31363b;
+                    color: #f0f0f0;
+                    border-radius: 8px;
+                    padding: 10px 22px;
+                    font-size: 16px;
+                    margin: 2px;
+                    min-width: 120px;
+                    margin-bottom: 20px;
+                }
+                QTabBar::tab:selected {
+                    background: #888;
+                    color: #232629;
+                }
+                QTabWidget::pane {
+                    border-radius: 12px;
+                    border: 1.5px solid #888;
+                    padding: 8px;
+                }
+                QProgressBar {
+                    border: 1.5px solid #888;
+                    border-radius: 8px;
+                    text-align: center;
+                    height: 18px;
+                    font-size: 15px;
+                    background: #232b33;
+                    color: #f0f0f0;
+                }
+                QProgressBar::chunk {
+                    background-color: #888;
+                    border-radius: 8px;
+                }
+                QTextEdit {
+                    background: #232b33;
+                    color: #f0f0f0;
+                    border-radius: 10px;
+                    font-size: 16px;
+                    padding: 18px;
+                    margin: 10px;
+                    border: 1.5px solid #888;
+                }
+            """
+            self.setStyleSheet(dark_stylesheet)
+            # Update route summary style for dark theme
+            if hasattr(self, 'route_summary'):
+                self.route_summary.setStyleSheet("QTextEdit { background: #232629; color: #f0f0f0; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
+            # Update prediction summary style for dark theme
+            if hasattr(self, 'prediction_summary'):
+                self.prediction_summary.setStyleSheet("QTextEdit { background: #232629; color: #f0f0f0; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
+        else:
+            light_stylesheet = """
+                QWidget {
+                    background-color: #f5f6fa;
+                    color: #232629;
+                    font-family: 'Arial', 'Helvetica', 'sans-serif';
+                    font-size: 15px;
+                }
+                QFrame[card="true"] {
+                    background: #fff;
+                    border-radius: 18px;
+                    border: 1.5px solid #888;
+                    margin: 0 0 18px 0;
+                }
+                QLabel[heading="true"] {
+                    font-size: 22px;
+                    font-weight: bold;
+                    color: #888;
+                    margin-bottom: 10px;
+                }
+                QLineEdit, QComboBox, QSpinBox, QTableWidget, QTabWidget::pane, QProgressBar {
+                    background-color: #fff;
+                    color: #232629;
+                    border-radius: 8px;
+                    border: 1.5px solid #888;
+                    padding: 6px 12px;
+                    font-size: 16px;
+                }
+                QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+                    border: 2px solid #888;
+                    background-color: #eaf6fb;
+                }
+                QComboBox::down-arrow {
+                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-down.svg);
+                    width: 16px;
+                    height: 16px;
+                }
+                QComboBox::drop-down {
+                    subcontrol-origin: padding;
+                    subcontrol-position: top right;
+                    width: 32px;
+                    border-left-width: 1px;
+                    border-left-color: #888;
+                    border-left-style: solid;
+                    border-top-right-radius: 8px;
+                    border-bottom-right-radius: 8px;
+                }
+                QSpinBox::up-arrow, QSpinBox::down-arrow {
+                    width: 18px;
+                    height: 18px;
+                }
+                QSpinBox::up-button, QSpinBox::down-button {
+                    min-width: 20px;
+                    min-height: 20px;
+                    width: 20px;
+                    height: 20px;
+                    margin: 1px;
+                    padding: 0px;
+                }
+                QSpinBox::up-arrow {
+                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-up.svg);
+                }
+                QSpinBox::down-arrow {
+                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-down.svg);
+                }
+                QPushButton {
+                    background-color: #888;
+                    color: #fff;
+                    font-size: 17px;
+                    font-weight: 600;
+                    border-radius: 10px;
+                    padding: 10px 0;
+                    margin-top: 8px;
+                    border: none;
+                    transition: background 0.2s;
+                }
+                QPushButton:hover {
+                    background-color: #aaa;
+                }
+                QPushButton:pressed {
+                    background-color: #555;
+                }
+                QTabBar::tab {
+                    background: #fff;
+                    color: #232629;
+                    border-radius: 8px;
+                    padding: 10px 22px;
+                    font-size: 16px;
+                    margin: 2px;
+                    min-width: 120px;
+                    margin-bottom: 20px;
+                }
+                QTabBar::tab:selected {
+                    background: #888;
+                    color: #232629;
+                }
+                QTabWidget::pane {
+                    border-radius: 12px;
+                    border: 1.5px solid #888;
+                    padding: 8px;
+                }
+                QProgressBar {
+                    border: 1.5px solid #888;
+                    border-radius: 8px;
+                    text-align: center;
+                    height: 18px;
+                    font-size: 15px;
+                    background: #eaf6fb;
+                    color: #232629;
+                }
+                QProgressBar::chunk {
+                    background-color: #888;
+                    border-radius: 8px;
+                }
+                QTextEdit {
+                    background: #fff;
+                    color: #232629;
+                    border-radius: 10px;
+                    font-size: 16px;
+                    padding: 18px;
+                    margin: 10px;
+                    border: 1.5px solid #888;
+                }
+            """
+            self.setStyleSheet(light_stylesheet)
+            # Update route summary style for light theme
+            if hasattr(self, 'route_summary'):
+                self.route_summary.setStyleSheet("QTextEdit { background: #f5f6fa; color: #232629; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
+            # Update prediction summary style for light theme
+            if hasattr(self, 'prediction_summary'):
+                self.prediction_summary.setStyleSheet("QTextEdit { background: #f5f6fa; color: #232629; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
+
     def _find_routes(self):
         """Find routes between selected sites."""
         try:
@@ -362,6 +810,7 @@ class MainWindow(QMainWindow):
                 print(error_msg)
                 print(f"Available site IDs: {sorted(self.df['site_id'].unique())}")
                 QMessageBox.warning(self, "Error", error_msg)
+                self.route_summary.setText("")
                 return
                 
             if len(dest_data) == 0:
@@ -369,6 +818,7 @@ class MainWindow(QMainWindow):
                 print(error_msg)
                 print(f"Available site IDs: {sorted(self.df['site_id'].unique())}")
                 QMessageBox.warning(self, "Error", error_msg)
+                self.route_summary.setText("")
                 return
             
             # Get coordinates
@@ -404,6 +854,7 @@ class MainWindow(QMainWindow):
                 error_msg = "No routes found between the selected sites"
                 print(error_msg)
                 QMessageBox.warning(self, "Error", error_msg)
+                self.route_summary.setText("")
                 return
             
             # Update progress
@@ -421,13 +872,15 @@ class MainWindow(QMainWindow):
             folium.Marker(
                 origin_coords,
                 tooltip=f"Origin: {origin_id}",
-                popup=f"Location: {origin_data.iloc[0]['Location']}"
+                popup=f"Location: {origin_data.iloc[0]['Location']}",
+                icon=folium.Icon(color='gray')
             ).add_to(m)
             
             folium.Marker(
                 dest_coords,
                 tooltip=f"Destination: {dest_id}",
-                popup=f"Location: {dest_data.iloc[0]['Location']}"
+                popup=f"Location: {dest_data.iloc[0]['Location']}",
+                icon=folium.Icon(color='gray')
             ).add_to(m)
             
             # Update progress
@@ -459,65 +912,72 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             progress.close()
             
-            # Show route summary
-            summary = "Route Summary:\n\n"
+            # Show route summary in the QTextEdit
+            summary = "<b>Route Summary:</b><br><br>"
             for i, (route, cost) in enumerate(routes):
-                summary += f"Route {i+1}:\n"
-                summary += f"Path: {' -> '.join(route)}\n"
-                summary += f"Travel Time: {cost:.2f} minutes\n\n"
-            
-            QMessageBox.information(self, "Routes Found", summary)
+                summary += f"<b>Route {i+1}:</b><br>"
+                summary += f"Path: {' → '.join(route)}<br>"
+                summary += f"Travel Time: <b>{cost:.2f} minutes</b><br><br>"
+            self.route_summary.setHtml(summary)
             
         except Exception as e:
             error_msg = f"Error finding routes: {str(e)}"
             print(error_msg)
             QMessageBox.warning(self, "Error", error_msg)
+            self.route_summary.setText("")
             raise
 
     def _predict_traffic(self):
         """Handle predict traffic button click."""
         site = self.site_combo.currentText()
-        
         if not site:
             QMessageBox.warning(self, "Error", "Please select a site")
             return
-            
         try:
             # Extract site_id from the display text
             site_id = site.split(' - ')[0]
-            
-            # Show progress dialog
             epochs = 50  # or get from config
-            progress_dialog = QProgressDialog("Training model...", "Cancel", 0, epochs, self)
-            progress_dialog.setWindowTitle("Training Progress")
-            progress_dialog.setWindowModality(Qt.WindowModal)
-            progress_dialog.show()
-            
+
+            # Clear the prediction graph area and show training message
+            self.prediction_label.setText(f"<b>Training model...</b><br>Epoch 0/{epochs}")
+            self.prediction_label.setStyleSheet(
+                "QLabel { "
+                "background: #f5f6fa; "
+                "color: #232629; "
+                "border: 2px dashed #b0b0b0; "
+                "border-radius: 12px; "
+                "font-size: 16px; "
+                "padding: 16px; "
+                "}" 
+            )
+            self.training_progress_bar.setVisible(True)
+            self.training_progress_bar.setValue(0)
+
             def update_progress(current, total):
-                progress_dialog.setValue(current)
-                progress_dialog.setLabelText(f"Training model... Epoch {current}/{total}")
+                self.prediction_label.setText(f"<b>Training model...</b><br>Epoch {current}/{total}")
+                percent = int((current / total) * 100)
+                self.training_progress_bar.setValue(percent)
                 QApplication.processEvents()
-                
+
             progress = TrainingProgress()
             progress.epoch_signal.connect(update_progress)
-            
+
             def on_training_done():
-                progress_dialog.close()
+                self.training_progress_bar.setVisible(False)
                 self.predict_traffic_after_training(site_id)
-                
+
             progress.training_done.connect(on_training_done)
-            
+
             import threading
             def train_and_predict():
                 train_models(site_id=int(site_id), progress_callback=ProgressCallback(epochs, progress), epochs_override=epochs)
                 progress.training_done.emit()
-                
+
             threading.Thread(target=train_and_predict).start()
-            
         except Exception as e:
             self.logger.error(f"Error predicting traffic: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error predicting traffic: {str(e)}")
-            
+
     def predict_traffic_after_training(self, site_id):
         try:
             # Convert site_id to string for consistent comparison
@@ -606,15 +1066,13 @@ class MainWindow(QMainWindow):
             avg_prediction = np.mean(predictions)
             max_prediction = np.max(predictions)
             min_prediction = np.min(predictions)
-            
-            QMessageBox.information(
-                self,
-                "Prediction Complete",
-                f"Traffic prediction for site {site_id}:\n\n" +
-                f"Average predicted volume: {avg_prediction:.0f}\n" +
-                f"Maximum predicted volume: {max_prediction:.0f}\n" +
-                f"Minimum predicted volume: {min_prediction:.0f}"
+            summary_html = (
+                f"<b>Traffic prediction for site {site_id}:</b><br><br>"
+                f"<b>Average predicted volume:</b> {avg_prediction:.0f}<br>"
+                f"<b>Maximum predicted volume:</b> {max_prediction:.0f}<br>"
+                f"<b>Minimum predicted volume:</b> {min_prediction:.0f}"
             )
+            self.prediction_summary.setHtml(summary_html)
             
         except Exception as e:
             self.logger.error(f"Error predicting traffic: {str(e)}")

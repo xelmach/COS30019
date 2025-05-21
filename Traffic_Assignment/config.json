@@ -3,7 +3,8 @@
     "sequence_length": 96,
     "batch_size": 32,
     "epochs": 50,
-    "learning_rate": 0.001
+    "learning_rate": 0.001,
+    "input_file": "Scats Data October 2006.xls"
   },
   "data": {
     "traffic_data_path": "Traffic_Count_Locations_with_LONG_LAT.csv",

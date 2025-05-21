@@ -3,6 +3,7 @@ Logging configuration for TBRGS.
 """
 
 #105106819 Suman Sutparai
+# Logger for TBRGS
 import logging
 import os
 from datetime import datetime

@@ -1,5 +1,5 @@
 #105106819 Suman Sutparai
-
+# Base model for TBRGS
 from abc import ABC, abstractmethod
 
 class BaseModel(ABC):

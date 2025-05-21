@@ -158,3 +158,206 @@
 2025-05-16 15:05:56,813 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
 2025-05-16 15:05:56,822 - INFO - Saved GRU model to models/gru_site_2820.h5
 2025-05-16 15:05:56,823 - INFO - Model training completed
+2025-05-16 15:33:05,413 - INFO - Starting TBRGS application
+2025-05-16 15:33:06,270 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 15:34:19,826 - INFO - Starting TBRGS application
+2025-05-16 15:34:20,672 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 15:35:39,524 - INFO - Starting TBRGS application
+2025-05-16 15:35:40,373 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 15:38:54,324 - INFO - Starting TBRGS application
+2025-05-16 15:38:55,163 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 15:41:33,905 - INFO - Starting TBRGS application
+2025-05-16 15:41:34,733 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 15:43:15,194 - INFO - Starting TBRGS application
+2025-05-16 15:43:16,074 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 15:43:54,588 - INFO - Starting model training
+2025-05-16 15:43:54,590 - INFO - Loading data
+2025-05-16 15:43:55,156 - INFO - Found 40 unique sites
+2025-05-16 15:43:55,156 - INFO - Training models for site 2000
+2025-05-16 15:43:55,161 - INFO - Training LSTM model
+2025-05-16 15:48:43,781 - INFO - LSTM model metrics: {'loss': 0.002316252561286092, 'mae': 0.03485550358891487}
+2025-05-16 15:48:44,445 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 15:48:44,459 - INFO - Saved LSTM model to models/lstm_site_2000.h5
+2025-05-16 15:48:44,459 - INFO - Training GRU model
+2025-05-16 15:54:21,302 - INFO - GRU model metrics: {'loss': 0.0020558605901896954, 'mae': 0.03229520842432976}
+2025-05-16 15:54:21,835 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 15:54:21,844 - INFO - Saved GRU model to models/gru_site_2000.h5
+2025-05-16 15:54:21,844 - INFO - Model training completed
+2025-05-16 21:09:18,753 - INFO - Starting TBRGS application
+2025-05-16 21:09:21,221 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:12:14,445 - INFO - Starting TBRGS application
+2025-05-16 21:12:15,269 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:17:12,937 - INFO - Starting TBRGS application
+2025-05-16 21:17:13,814 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:17:20,059 - INFO - Starting model training
+2025-05-16 21:17:20,059 - INFO - Loading data
+2025-05-16 21:17:20,638 - INFO - Found 40 unique sites
+2025-05-16 21:17:20,638 - INFO - Training models for site 2000
+2025-05-16 21:17:20,643 - INFO - Training LSTM model
+2025-05-16 21:18:46,900 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 21:18:53,579 - INFO - Starting TBRGS application
+2025-05-16 21:18:54,463 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:18:58,169 - INFO - Starting model training
+2025-05-16 21:18:58,169 - INFO - Loading data
+2025-05-16 21:18:58,732 - INFO - Found 40 unique sites
+2025-05-16 21:18:58,732 - INFO - Training models for site 2000
+2025-05-16 21:18:58,736 - INFO - Training LSTM model
+2025-05-16 21:19:02,596 - INFO - Starting model training
+2025-05-16 21:19:02,597 - INFO - Loading data
+2025-05-16 21:19:03,339 - INFO - Found 40 unique sites
+2025-05-16 21:19:03,339 - INFO - Training models for site 2000
+2025-05-16 21:19:03,343 - INFO - Training LSTM model
+2025-05-16 21:21:28,392 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 21:21:29,843 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 21:21:39,660 - INFO - Starting TBRGS application
+2025-05-16 21:21:40,592 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:21:43,948 - INFO - Starting model training
+2025-05-16 21:21:43,948 - INFO - Loading data
+2025-05-16 21:21:44,508 - INFO - Found 40 unique sites
+2025-05-16 21:21:44,508 - INFO - Training models for site 2000
+2025-05-16 21:21:44,512 - INFO - Training LSTM model
+2025-05-16 21:23:16,110 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 21:23:57,707 - INFO - Starting TBRGS application
+2025-05-16 21:23:58,719 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:24:06,433 - INFO - Starting model training
+2025-05-16 21:24:06,433 - INFO - Loading data
+2025-05-16 21:24:07,030 - INFO - Found 40 unique sites
+2025-05-16 21:24:07,030 - INFO - Training models for site 2000
+2025-05-16 21:24:07,035 - INFO - Training LSTM model
+2025-05-16 21:29:08,917 - INFO - LSTM model metrics: {'loss': 0.0018588133389130235, 'mae': 0.03142041340470314}
+2025-05-16 21:29:09,460 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 21:29:09,477 - INFO - Saved LSTM model to models/lstm_site_2000.h5
+2025-05-16 21:29:09,477 - INFO - Training GRU model
+2025-05-16 21:35:02,733 - INFO - GRU model metrics: {'loss': 0.002269052667543292, 'mae': 0.0340113639831543}
+2025-05-16 21:35:03,279 - WARNING - You are saving your model as an HDF5 file via `model.save()` or `keras.saving.save_model(model)`. This file format is considered legacy. We recommend using instead the native Keras format, e.g. `model.save('my_model.keras')` or `keras.saving.save_model(model, 'my_model.keras')`. 
+2025-05-16 21:35:03,287 - INFO - Saved GRU model to models/gru_site_2000.h5
+2025-05-16 21:35:03,287 - INFO - Model training completed
+2025-05-16 21:36:54,202 - INFO - Starting TBRGS application
+2025-05-16 21:36:55,078 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:38:55,913 - INFO - Starting TBRGS application
+2025-05-16 21:38:56,774 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:40:16,423 - INFO - Starting TBRGS application
+2025-05-16 21:40:17,310 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:41:43,689 - INFO - Starting TBRGS application
+2025-05-16 21:41:44,568 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:43:28,913 - INFO - Starting TBRGS application
+2025-05-16 21:43:29,795 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:43:52,115 - INFO - Starting model training
+2025-05-16 21:43:52,116 - INFO - Loading data
+2025-05-16 21:43:52,687 - INFO - Found 40 unique sites
+2025-05-16 21:43:52,688 - INFO - Training models for site 2000
+2025-05-16 21:43:52,692 - INFO - Training LSTM model
+2025-05-16 21:46:49,263 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 21:46:56,661 - INFO - Starting TBRGS application
+2025-05-16 21:46:57,640 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:48:46,980 - INFO - Starting TBRGS application
+2025-05-16 21:48:47,888 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:51:37,051 - INFO - Starting TBRGS application
+2025-05-16 21:51:37,944 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:51:57,328 - INFO - Starting model training
+2025-05-16 21:51:57,328 - INFO - Loading data
+2025-05-16 21:51:57,917 - INFO - Found 40 unique sites
+2025-05-16 21:51:57,918 - INFO - Training models for site 2000
+2025-05-16 21:51:57,922 - INFO - Training LSTM model
+2025-05-16 21:54:37,753 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 21:54:55,142 - INFO - Starting TBRGS application
+2025-05-16 21:54:56,043 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:57:18,601 - INFO - Starting TBRGS application
+2025-05-16 21:57:19,489 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 21:59:41,126 - INFO - Starting TBRGS application
+2025-05-16 21:59:42,016 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:01:39,107 - INFO - Starting TBRGS application
+2025-05-16 22:01:40,031 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:04:15,900 - INFO - Starting TBRGS application
+2025-05-16 22:04:16,818 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:06:29,870 - INFO - Starting TBRGS application
+2025-05-16 22:06:30,762 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:08:12,133 - INFO - Starting TBRGS application
+2025-05-16 22:08:13,027 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:09:42,021 - INFO - Starting TBRGS application
+2025-05-16 22:09:42,879 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:11:05,009 - INFO - Starting TBRGS application
+2025-05-16 22:11:05,899 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:18:00,130 - INFO - Starting TBRGS application
+2025-05-16 22:18:01,039 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:20:14,198 - INFO - Starting TBRGS application
+2025-05-16 22:20:15,112 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:29:00,615 - INFO - Starting TBRGS application
+2025-05-16 22:29:01,506 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:29:07,820 - INFO - Starting model training
+2025-05-16 22:29:07,820 - INFO - Loading data
+2025-05-16 22:29:08,396 - INFO - Found 40 unique sites
+2025-05-16 22:29:08,396 - INFO - Training models for site 2000
+2025-05-16 22:29:08,400 - INFO - Training LSTM model
+2025-05-16 22:30:40,294 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 22:30:50,285 - INFO - Starting TBRGS application
+2025-05-16 22:30:51,261 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:35:08,785 - INFO - Starting TBRGS application
+2025-05-16 22:35:09,760 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:41:41,523 - INFO - Starting model training
+2025-05-16 22:41:41,524 - INFO - Loading data
+2025-05-16 22:41:42,129 - INFO - Found 40 unique sites
+2025-05-16 22:41:42,129 - INFO - Training models for site 2000
+2025-05-16 22:41:42,134 - INFO - Training LSTM model
+2025-05-16 22:42:36,163 - ERROR - Error during model training: wrapped C/C++ object of type TrainingProgress has been deleted
+2025-05-16 22:43:22,060 - INFO - Starting TBRGS application
+2025-05-16 22:43:22,998 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:44:11,895 - INFO - Starting TBRGS application
+2025-05-16 22:44:12,761 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:45:11,742 - INFO - Starting TBRGS application
+2025-05-16 22:45:12,613 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:47:13,070 - INFO - Starting TBRGS application
+2025-05-16 22:47:13,943 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:49:41,240 - INFO - Starting TBRGS application
+2025-05-16 22:49:42,129 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:53:06,933 - INFO - Starting TBRGS application
+2025-05-16 22:53:07,809 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:56:03,099 - INFO - Starting TBRGS application
+2025-05-16 22:56:03,990 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 22:58:04,121 - INFO - Starting TBRGS application
+2025-05-16 22:58:04,990 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 23:00:03,382 - INFO - Starting TBRGS application
+2025-05-16 23:00:04,264 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 23:03:06,721 - INFO - Starting TBRGS application
+2025-05-16 23:03:07,612 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 23:05:34,814 - INFO - Starting TBRGS application
+2025-05-16 23:05:35,682 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 23:07:20,417 - INFO - Starting TBRGS application
+2025-05-16 23:07:21,281 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 23:10:55,418 - INFO - Starting TBRGS application
+2025-05-16 23:10:56,310 - INFO - Built graph with 40 nodes and 1560 edges
+2025-05-16 23:15:11,146 - INFO - Starting TBRGS application
+2025-05-16 23:15:11,387 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:15:21,019 - INFO - Starting TBRGS application
+2025-05-16 23:15:21,221 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:16:32,223 - INFO - Starting TBRGS application
+2025-05-16 23:16:32,542 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:17:07,729 - INFO - Starting TBRGS application
+2025-05-16 23:17:08,057 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:17:43,841 - INFO - Starting TBRGS application
+2025-05-16 23:17:44,175 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:18:38,319 - INFO - Starting TBRGS application
+2025-05-16 23:18:38,637 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:19:19,738 - INFO - Starting TBRGS application
+2025-05-16 23:19:20,032 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:19:44,144 - INFO - Starting TBRGS application
+2025-05-16 23:19:44,522 - ERROR - Application error: 
+2025-05-16 23:20:25,799 - INFO - Starting TBRGS application
+2025-05-16 23:21:19,605 - INFO - Starting TBRGS application
+2025-05-16 23:34:06,794 - INFO - Starting TBRGS application
+2025-05-16 23:34:07,007 - ERROR - Application error: Pandas requires version '2.0.1' or newer of 'xlrd' (version '1.2.0' currently installed).
+2025-05-16 23:34:21,433 - INFO - Starting TBRGS application
+2025-05-16 23:34:21,631 - ERROR - Application error: Pandas requires version '2.0.1' or newer of 'xlrd' (version '1.2.0' currently installed).
+2025-05-16 23:34:50,329 - INFO - Starting TBRGS application
+2025-05-16 23:34:50,528 - ERROR - Application error: Pandas requires version '2.0.1' or newer of 'xlrd' (version '1.2.0' currently installed).
+2025-05-16 23:35:36,674 - INFO - Starting TBRGS application
+2025-05-16 23:35:36,902 - ERROR - Application error: Pandas requires version '2.0.1' or newer of 'xlrd' (version '1.2.0' currently installed).
+2025-05-16 23:36:16,022 - INFO - Starting TBRGS application
+2025-05-16 23:36:16,580 - ERROR - Error initializing map: 'Latitude'
+2025-05-16 23:41:50,541 - INFO - Starting TBRGS application
+2025-05-16 23:41:51,095 - ERROR - Error initializing map: 'Latitude'
+2025-05-16 23:44:41,227 - INFO - Starting TBRGS application
+2025-05-16 23:44:42,292 - ERROR - Application error: Missing optional dependency 'xlrd'. Install xlrd >= 2.0.1 for xls Excel support Use pip or conda to install xlrd.
+2025-05-16 23:54:02,811 - INFO - Starting TBRGS application
+2025-05-16 23:54:03,394 - ERROR - Error initializing map: 'Latitude'
+2025-05-17 00:16:50,635 - INFO - Built graph with 40 nodes and 58 edges
