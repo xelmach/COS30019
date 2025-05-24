@@ -44,9 +44,11 @@ class DataProcessor:
         df = pd.read_excel(input_file, sheet_name='Data', header=1, usecols=usecols)
         df.columns = [str(col).strip() for col in df.columns]
         
-      
-        df['NB_LATITUDE'] = df['NB_LATITUDE'] + 0.00126  
-        df['NB_LONGITUDE'] = df['NB_LONGITUDE'] + 0.00129  
+        # Add coordinate offset
+        # North 140 meters ≈ 0.00126 degrees latitude
+        # East 115 meters (originally 120m east, then 5m west) ≈ 0.00129 degrees longitude (at Melbourne's latitude)
+        df['NB_LATITUDE'] = df['NB_LATITUDE'] + 0.00126  # Move north 140m
+        df['NB_LONGITUDE'] = df['NB_LONGITUDE'] + 0.00129  # Move east 115m
         
         # Print available columns for debugging
         print("Available columns:", df.columns.tolist())
@@ -280,11 +282,11 @@ class DataProcessor:
                     print(f"Two possible speeds: {speed1:.2f} km/h and {speed2:.2f} km/h")
                     
                     if avg_flow <= 351:
-                        # 流量小，道路未达到容量，选择较大速度（绿线）
+                        # Under capacity: choose higher speed (green line)
                         speed = max(speed1, speed2)
                         print(f"Flow <= 351 (under capacity), using higher speed (green line): {speed:.2f} km/h")
                     else:
-                        # 流量大，道路超过容量，选择较小速度（红线）
+                        # Over capacity: choose lower speed (red line)
                         speed = min(speed1, speed2)
                         print(f"Flow > 351 (over capacity), using lower speed (red line): {speed:.2f} km/h")
                     
@@ -292,7 +294,7 @@ class DataProcessor:
                     if speed == speed_limit:
                         print(f"Speed capped at limit: {speed_limit} km/h")
                 
-                # 验证计算的速度是否合理
+                # Verify if calculated speed is reasonable
                 calculated_flow = -1.4648375 * (speed**2) + 93.75 * speed
                 print(f"Verification - calculated flow for speed {speed:.2f}: {calculated_flow:.2f}")
                 print(f"Original flow: {avg_flow:.2f}")
