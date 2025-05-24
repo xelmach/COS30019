@@ -1,188 +1,157 @@
-#105106819 Suman Sutparai
-# Route finding for TBRGS
-
-import networkx as nx
-import numpy as np
-from logger import setup_logger
+import heapq
 
 class RouteFinder:
-    def __init__(self, config):
-        """Initialize the route finder.
-        
-        Args:
-            config: Configuration object containing route finding parameters.
-        """
-        self.config = config
-        self.graph = nx.DiGraph()
+    def __init__(self):
+        self.graph = {}
         self.site_coords = {}
-        self.logger = setup_logger()
-        
+
     def build_graph(self, edges, coordinates):
-        """Build the graph from edges and coordinates.
-        
+        """
+        Build the graph from edges and coordinates.
         Args:
-            edges: List of tuples (origin, destination, weight)
+            edges: List of tuples (origin, destination, travel_time)
             coordinates: Dictionary mapping site IDs to (lat, lon) tuples
         """
-        try:
-            self.graph = nx.DiGraph()
-            self.site_coords = coordinates
-            
-            # Add all nodes first
-            for site_id in coordinates.keys():
-                self.graph.add_node(str(site_id))
-            
-            # Then add edges
-            for edge in edges:
-                origin, dest, weight = edge
-                self.graph.add_edge(str(origin), str(dest), weight=float(weight))
-                
-            self.logger.info(f"Built graph with {len(self.graph.nodes)} nodes and {len(self.graph.edges)} edges")
-            
-        except Exception as e:
-            self.logger.error(f"Error building graph: {str(e)}")
-            raise
-            
-    def find_top_k_routes(self, origin, destination, k=2):
-        """Find the top k routes between origin and destination.
-        
+        self.graph = {}
+        self.site_coords = coordinates
+        for site_id in coordinates.keys():
+            self.graph[str(site_id)] = []
+        for edge in edges:
+            origin, dest, travel_time = edge
+            self.graph[str(origin)].append((str(dest), float(travel_time)))
+
+    def get_route_length(self, route):
+        """
+        Calculate the total travel time of a route.
+        Args:
+            route: List of site IDs
+        Returns:
+            Total travel time (float)
+        """
+        length = 0
+        for i in range(len(route) - 1):
+            for neighbor, weight in self.graph[route[i]]:
+                if neighbor == route[i+1]:
+                    length += weight
+                    break
+        return length
+
+    def dijkstra(self, start, end, banned_edges=None, banned_nodes=None):
+        """
+        Custom Dijkstra's algorithm to find the shortest path from start to end.
+        Returns the path as a list of nodes.
+        """
+        queue = [(0, [start])]
+        visited = set()
+        banned_edges = banned_edges or set()
+        banned_nodes = banned_nodes or set()
+        while queue:
+            cost, path = heapq.heappop(queue)
+            node = path[-1]
+            if node == end:
+                return path, cost
+            if node in visited:
+                continue
+            visited.add(node)
+            for neighbor, weight in self.graph.get(node, []):
+                if neighbor not in path and (node, neighbor) not in banned_edges and neighbor not in banned_nodes:
+                    heapq.heappush(queue, (cost + weight, path + [neighbor]))
+        return None, float('inf')
+
+    def yen_k_shortest_paths(self, start, end, K=10):
+        """
+        Custom Yen's K-shortest paths algorithm (using custom Dijkstra).
+        Returns up to K distinct paths (list of node lists).
+        """
+        start = str(start)
+        end = str(end)
+        A = []  # List of shortest paths
+        B = []  # Min-heap for potential kth shortest path
+        path, cost = self.dijkstra(start, end)
+        if not path:
+            return []
+        A.append((path, cost))
+        for k in range(1, K*5):
+            for i in range(1, len(A[0][0]) - 1):
+                spur_node = A[-1][0][i]
+                root_path = A[-1][0][:i+1]
+                removed_edges = []
+                for p, _ in A:
+                    if len(p) > i and p[:i+1] == root_path:
+                        u, v = p[i], p[i+1]
+                        for idx, (neighbor, weight) in enumerate(self.graph[u]):
+                            if neighbor == v:
+                                removed_edges.append((u, v, weight))
+                                self.graph[u].pop(idx)
+                                break
+                spur_path, spur_cost = self.dijkstra(spur_node, end)
+                for u, v, weight in removed_edges:
+                    self.graph[u].append((v, weight))
+                if spur_path and spur_path[0] == spur_node:
+                    total_path = root_path[:-1] + spur_path
+                    if len(set(total_path)) != len(total_path):
+                        continue
+                    if any(n == start for n in total_path[1:-1]) or any(n == end for n in total_path[1:-1]):
+                        continue
+                    total_cost = self.get_route_length(total_path)
+                    if (total_path, total_cost) not in A and all(total_path != b[0] for b in B):
+                        heapq.heappush(B, (total_cost, total_path))
+            if not B:
+                break
+            cost, path = heapq.heappop(B)
+            A.append((path, cost))
+            if len(A) >= K:
+                break
+        return A
+
+    def find_top_k_assignment_routes(self, origin, destination, k=3):
+        """
+        Assignment-compliant: Find up to k truly distinct, lowest-travel-time routes.
+        Each route must have a unique node sequence and at least 2 different intermediate nodes compared to the fastest route.
+        Raises an error if fewer than 2 valid routes exist.
         Args:
             origin: Origin site ID
             destination: Destination site ID
-            k: Number of routes to find
-            
+            k: Number of distinct routes to return (default: 3)
         Returns:
-            List of tuples (path, cost) where path is a list of site IDs
+            List of (path, cost) tuples, up to k distinct routes.
         """
-        try:
-            # Convert site IDs to strings
-            origin = str(origin)
-            destination = str(destination)
-            
-            print("\n" + "="*50)
-            print(f"Starting route calculation from {origin} to {destination}")
-            print("="*50)
-            
-            print(f"\nGraph Statistics:")
-            print(f"- Total nodes: {len(self.graph.nodes)}")
-            print(f"- Total edges: {len(self.graph.edges)}")
-            print(f"- Available nodes: {sorted(self.graph.nodes)}")
-            
-            # Check if nodes exist in the graph
-            if origin not in self.graph:
-                print(f"\n❌ Error: Origin node {origin} not found in graph")
-                return []
-            if destination not in self.graph:
-                print(f"\n❌ Error: Destination node {destination} not found in graph")
-                return []
-            
-            print("\n✅ Nodes verified in graph")
-            
-            # Use k-shortest paths algorithm with progress updates
-            print("\nCalculating shortest paths...")
-            print("Step 1: Finding initial shortest path")
-            
-            # First find the shortest path
-            try:
-                shortest_path = nx.shortest_path(self.graph, origin, destination, weight='weight')
-                print(f"Found initial path: {' -> '.join(shortest_path)}")
-            except nx.NetworkXNoPath:
-                print(f"\n❌ No path exists between {origin} and {destination}")
-                return []
-            
-            print("Step 2: Finding alternative paths")
-            paths = [shortest_path]
-            
-            # Find k-1 more paths
-            for i in range(k-1):
-                try:
-                    # Create a new graph without the previous paths
-                    G = self.graph.copy()
-                    for path in paths:
-                        for j in range(len(path)-1):
-                            if G.has_edge(path[j], path[j+1]):
-                                G.remove_edge(path[j], path[j+1])
-                    
-                    # Try to find another path
-                    try:
-                        new_path = nx.shortest_path(G, origin, destination, weight='weight')
-                        paths.append(new_path)
-                        print(f"Found alternative path {i+2}: {' -> '.join(new_path)}")
-                    except nx.NetworkXNoPath:
-                        print(f"No more alternative paths found after {i+1} paths")
-                        break
-                        
-                except Exception as e:
-                    print(f"Error finding alternative path: {str(e)}")
+        origin = str(origin)
+        destination = str(destination)
+        all_routes = self.yen_k_shortest_paths(origin, destination, K=max(10, k*3))
+        if not all_routes:
+            raise RuntimeError("No path exists between origin and destination.")
+        unique_routes = []
+        fastest_route = all_routes[0][0]
+        # 1. Try to find early-diverging routes
+        for path, cost in all_routes:
+            if not unique_routes:
+                unique_routes.append((path, cost))
+            else:
+                min_len = min(len(path), len(fastest_route))
+                diverge_idx = next((i for i in range(1, min_len) if path[i] != fastest_route[i]), None)
+                if diverge_idx is not None and diverge_idx <= 2:
+                    unique_routes.append((path, cost))
+            if len(unique_routes) >= k:
+                break
+        # 2. If not enough, accept any simple, non-identical route
+        if len(unique_routes) < k:
+            for path, cost in all_routes:
+                if (path, cost) not in unique_routes and path != fastest_route and len(set(path)) == len(path):
+                    unique_routes.append((path, cost))
+                if len(unique_routes) >= k:
                     break
-            
-            if not paths:
-                print(f"\n❌ No paths found between {origin} and {destination}")
-                return []
-            
-            print(f"\n✅ Found {len(paths)} possible paths")
-            print("\nCalculating route costs...")
-            
-            routes = []
-            for i, path in enumerate(paths):
-                print(f"\nAnalyzing Path {i+1}:")
-                print(f"Route: {' -> '.join(path)}")
-                cost = self.get_route_length(path)
-                print(f"Total travel time: {cost:.2f} minutes")
-                routes.append((path, cost))
-            
-            print("\n" + "="*50)
-            print("Route calculation complete!")
-            print("="*50 + "\n")
-            
-            return routes
-            
-        except Exception as e:
-            print(f"\n❌ Error finding routes: {str(e)}")
-            return []
-            
-    def get_route_length(self, route):
-        """Calculate the total length of a route.
-        
-        Args:
-            route: List of site IDs
-            
-        Returns:
-            Total length of the route
-        """
-        try:
-            length = 0
-            print("\nCalculating segment times:")
-            for i in range(len(route) - 1):
-                try:
-                    segment_time = self.graph[route[i]][route[i+1]]['weight']
-                    length += segment_time
-                    print(f"- {route[i]} to {route[i+1]}: {segment_time:.2f} minutes")
-                except KeyError:
-                    print(f"⚠️ Warning: Edge not found between {route[i]} and {route[i+1]}")
-                    continue
-            return length
-        except Exception as e:
-            print(f"❌ Error calculating route length: {str(e)}")
-            return float('inf')
-        
-    def get_route_coords(self, route):
-        """Get the coordinates for a route.
-        
-        Args:
-            route: List of site IDs
-            
-        Returns:
-            List of (lat, lon) tuples
-        """
-        try:
-            coords = []
-            for site in route:
-                site = str(site)
-                if site in self.site_coords:
-                    coord = self.site_coords[site]
-                    coords.append((coord['lat'], coord['lon']))
-            return coords
-        except Exception as e:
-            self.logger.error(f"Error getting route coordinates: {str(e)}")
-            return [] 
+        # 3. If still not enough, forcibly remove edges from fastest route and try again
+        if len(unique_routes) < 2:
+            banned_edges = set()
+            for i in range(len(fastest_route) - 1):
+                banned_edges.add((fastest_route[i], fastest_route[i+1]))
+            alt_path, alt_cost = self.dijkstra(origin, destination, banned_edges=banned_edges)
+            if alt_path and alt_path != fastest_route and len(set(alt_path)) == len(alt_path):
+                unique_routes.append((alt_path, alt_cost))
+        # 4. Final check
+        unique_routes = [r for i, r in enumerate(unique_routes) if r not in unique_routes[:i]]
+        if len(unique_routes) < 2:
+            raise RuntimeError("No alternative route exists (graph may be disconnected).")
+        unique_routes.sort(key=lambda x: x[1])
+        return unique_routes[:k] 

@@ -211,13 +211,12 @@ class DataProcessor:
         
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
         
-    def build_graph(self, df, coordinates):
-        """Build a graph from SCATS site data.
-        
+    def build_graph(self, df, coordinates, valid_edges=None):
+        """Build a graph from SCATS site data using only valid adjacent connections.
         Args:
             df (pd.DataFrame): Traffic data
             coordinates (dict): Dictionary of site coordinates
-            
+            valid_edges (list): List of (origin, dest) tuples for valid connections
         Returns:
             tuple: (edges, coordinates) where edges is a list of (origin, dest, weight) tuples
         """
@@ -225,84 +224,52 @@ class DataProcessor:
             edges = []
             speed_limit = 60  # km/h
             intersection_delay = 30  # seconds
-            
-            # Get unique site IDs
-            sites = sorted(df['site_id'].unique())
-            
-            # Create edges between all pairs of sites
-            for i, site1 in enumerate(sites):
-                for site2 in sites[i+1:]:
-                    # Get coordinates
-                    if site1 not in coordinates or site2 not in coordinates:
-                        continue
-                        
-                    coord1 = coordinates[site1]
-                    coord2 = coordinates[site2]
-                    
-                    # Calculate distance using Haversine formula
-                    lat1, lon1 = coord1['lat'], coord1['lon']
-                    lat2, lon2 = coord2['lat'], coord2['lon']
-                    
-                    # Convert to radians
-                    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-                    
-                    # Haversine formula
-                    dlat = lat2 - lat1
-                    dlon = lon2 - lon1
-                    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-                    c = 2 * np.arcsin(np.sqrt(a))
-                    distance = 6371 * c  # Earth's radius in km
-                    
-                    # Get traffic volume for origin site (as per requirements)
-                    site1_data = df[df['site_id'] == site1]
-                    if len(site1_data) == 0:
-                        continue
-                        
-                    # Calculate average hourly volume
-                    volume_cols = [col for col in site1_data.columns if str(col).startswith('V')]
-                    avg_flow = site1_data[volume_cols].mean().mean()  # vehicles per hour
-                    
-                    # Calculate speed based on flow using the quadratic equation
-                    # flow = -1.4648375*(speed)^2 + 93.75*(speed)
-                    # We need to solve for speed given flow
-                    # Using quadratic formula: speed = (-b ± sqrt(b^2 - 4ac)) / (2a)
-                    # where a = -1.4648375, b = 93.75, c = -flow
-                    
-                    a = -1.4648375
-                    b = 93.75
-                    c = -avg_flow
-                    
-                    # Calculate discriminant
-                    discriminant = b**2 - 4*a*c
-                    
-                    if discriminant < 0:
-                        # No real solutions, use speed limit
-                        speed = speed_limit
+
+            if valid_edges is None:
+                # Fallback: fully connected (legacy, not recommended)
+                sites = sorted(df['site_id'].unique())
+                valid_edges = [(site1, site2) for i, site1 in enumerate(sites) for site2 in sites[i+1:]]
+
+            for site1, site2 in valid_edges:
+                if site1 not in coordinates or site2 not in coordinates:
+                    continue
+                coord1 = coordinates[site1]
+                coord2 = coordinates[site2]
+                # Calculate distance using Haversine formula
+                lat1, lon1 = coord1['lat'], coord1['lon']
+                lat2, lon2 = coord2['lat'], coord2['lon']
+                lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+                dlat = lat2 - lat1
+                dlon = lon2 - lon1
+                a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+                c = 2 * np.arcsin(np.sqrt(a))
+                distance = 6371 * c  # Earth's radius in km
+                # Get traffic volume for origin site
+                site1_data = df[df['site_id'] == site1]
+                if len(site1_data) == 0:
+                    continue
+                volume_cols = [col for col in site1_data.columns if str(col).startswith('V')]
+                avg_flow = site1_data[volume_cols].mean().mean()
+                a_coef = -1.4648375
+                b_coef = 93.75
+                c_coef = -avg_flow
+                discriminant = b_coef**2 - 4*a_coef*c_coef
+                if discriminant < 0:
+                    speed = speed_limit
+                else:
+                    speed1 = (-b_coef + np.sqrt(discriminant)) / (2*a_coef)
+                    speed2 = (-b_coef - np.sqrt(discriminant)) / (2*a_coef)
+                    if avg_flow <= 351:
+                        speed = min(speed1, speed2)
                     else:
-                        # Get both solutions
-                        speed1 = (-b + np.sqrt(discriminant)) / (2*a)
-                        speed2 = (-b - np.sqrt(discriminant)) / (2*a)
-                        
-                        # Choose the appropriate speed based on flow
-                        if avg_flow <= 351:  # Under capacity (green line)
-                            speed = min(speed1, speed2)  # Take the higher speed
-                        else:  # Over capacity (red line)
-                            speed = max(speed1, speed2)  # Take the lower speed
-                            
-                        # Cap speed at speed limit
-                        speed = min(speed, speed_limit)
-                    
-                    # Calculate travel time (in minutes)
-                    # time = distance/speed + intersection_delay
-                    travel_time = (distance / speed) * 60 + (intersection_delay / 60)
-                    
-                    # Add bidirectional edges
-                    edges.append((site1, site2, travel_time))
-                    edges.append((site2, site1, travel_time))
-            
-            print(f"Built graph with {len(edges)} edges")
+                        speed = max(speed1, speed2)
+                    speed = min(speed, speed_limit)
+                travel_time = (distance / speed) * 60 + (intersection_delay / 60)
+                # Add bidirectional edges
+                edges.append((site1, site2, travel_time))
+                edges.append((site2, site1, travel_time))
+            print(f"Built graph with {len(edges)} edges (using valid_edges)")
             return edges, coordinates
-            
         except Exception as e:
             print(f"Error building graph: {str(e)}")
             return [], coordinates 

@@ -168,4 +168,66 @@ class LSTMModel(BaseModel):
             current_input = np.roll(current_input, -1, axis=1)
             current_input[0, -1] = pred[0, 0]
             
-        return np.array(predictions) 
+        return np.array(predictions)
+
+def train_lstm_model(input_path, output_path, window_size=12, epochs=50):
+    """Train an LSTM model on the given data.
+    
+    Args:
+        input_path (str): Path to the input CSV file.
+        output_path (str): Path to save the predictions.
+        window_size (int): Size of the input window.
+        epochs (int): Number of training epochs.
+        
+    Returns:
+        tuple: (y_test, y_pred, rmse)
+    """
+    import pandas as pd
+    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.model_selection import train_test_split
+    
+    # Load and preprocess data
+    df = pd.read_csv(input_path)
+    data = df['normalized_volume'].values.reshape(-1, 1)
+    
+    # Normalize data
+    scaler = MinMaxScaler()
+    data_normalized = scaler.fit_transform(data)
+    
+    # Create sequences
+    X, y = [], []
+    for i in range(len(data_normalized) - window_size):
+        X.append(data_normalized[i:(i + window_size)])
+        y.append(data_normalized[i + window_size])
+    X = np.array(X)
+    y = np.array(y)
+    
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Create and train model
+    config = {
+        'batch_size': 32,
+        'learning_rate': 0.001
+    }
+    model = LSTMModel(config)
+    model.build_model(input_shape=(window_size, 1))
+    model.train(X_train, y_train, X_test, y_test, epochs=epochs)
+    
+    # Make predictions
+    y_pred = model.predict(X_test)
+    
+    # Inverse transform predictions and actual values
+    y_test = scaler.inverse_transform(y_test)
+    y_pred = scaler.inverse_transform(y_pred)
+    
+    # Calculate RMSE
+    rmse = np.sqrt(np.mean((y_test - y_pred) ** 2))
+    
+    # Save predictions
+    np.save(output_path, y_pred)
+    
+    # Plot results
+    model.plot_predictions(X_test, y_test)
+    
+    return y_test, y_pred, rmse 

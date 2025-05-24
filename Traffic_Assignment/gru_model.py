@@ -7,6 +7,10 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import os
+import pandas as pd
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import GRU, Dense
+from sklearn.model_selection import train_test_split
 
 class GRUModel(BaseModel):
     def __init__(self, config):
@@ -168,4 +172,27 @@ class GRUModel(BaseModel):
             current_input = np.roll(current_input, -1, axis=1)
             current_input[0, -1] = pred[0, 0]
             
-        return np.array(predictions) 
+        return np.array(predictions)
+
+def train_gru_model(input_path, output_path, window_size=12, epochs=50):
+    df = pd.read_csv(input_path)
+    data = df['normalized_volume'].values
+    X, y = [], []
+    for i in range(len(data) - window_size):
+        X.append(data[i:i + window_size])
+        y.append(data[i + window_size])
+    X = np.array(X).reshape((-1, window_size, 1))
+    y = np.array(y)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+    model = Sequential([
+        GRU(64, input_shape=(window_size, 1)),
+        Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    model.fit(X_train, y_train, epochs=epochs, batch_size=32, validation_split=0.1, verbose=0)
+    # Save model
+    site_id = input_path.split('_')[1]
+    model.save(f"models/gru_site_{site_id}.h5")
+    y_pred = model.predict(X_test)
+    np.save(output_path, y_pred)
+    return y_test, y_pred, np.sqrt(np.mean((y_test - y_pred.flatten()) ** 2)) 

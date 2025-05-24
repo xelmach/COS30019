@@ -16,13 +16,15 @@ from tensorflow.keras.layers import GRU, Dense
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
+import glob
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from processor import DataProcessor
-from lstm_model import LSTMModel
-from gru_model import GRUModel
+from lstm_model import LSTMModel, train_lstm_model
+from gru_model import train_gru_model
+from cnn_model import train_cnn_model
 from config_loader import ConfigLoader
 from logger import setup_logger
 
@@ -161,8 +163,8 @@ def train_gru_model(site_id, progress_callback=None, epochs_override=None):
             os.makedirs('models')
             
         # Load and prepare data
-        df = pd.read_csv("scats_0970_normalized.csv", index_col=0)
-        data = df["Volume_norm"].values
+        df = pd.read_csv("data/scats_0970_normalized.csv")
+        data = df["normalized_volume"].values
         
         # Construct time window data
         window_size = 12
@@ -223,5 +225,38 @@ def train_gru_model(site_id, progress_callback=None, epochs_override=None):
         print(f"Error training model: {str(e)}")
         return False
 
+def train_all_sites(window_size=12, epochs=50):
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    files = glob.glob(os.path.join(data_dir, "scats_*_normalized.csv"))
+    print(f"[train_all_sites] Found {len(files)} normalized data files.")
+    for file in files:
+        site_id = os.path.basename(file).split('_')[1]
+        print(f"[train_all_sites] Training models for site {site_id}...")
+        # LSTM
+        try:
+            output_path = f"output/y_pred_lstm_{site_id}.npy"
+            print(f"[train_all_sites] Training LSTM for site {site_id}...")
+            train_lstm_model(input_path=file, output_path=output_path, window_size=window_size, epochs=epochs)
+            print(f"[train_all_sites] LSTM model trained and saved for site {site_id}")
+        except Exception as e:
+            print(f"[train_all_sites] Error training LSTM for site {site_id}: {e}")
+        # GRU
+        try:
+            output_path = f"output/y_pred_gru_{site_id}.npy"
+            print(f"[train_all_sites] Training GRU for site {site_id}...")
+            train_gru_model(file, output_path, window_size, epochs)
+            print(f"[train_all_sites] GRU model trained and saved for site {site_id}")
+        except Exception as e:
+            print(f"[train_all_sites] Error training GRU for site {site_id}: {e}")
+        # CNN
+        try:
+            output_path = f"output/y_pred_cnn_{site_id}.npy"
+            print(f"[train_all_sites] Training CNN for site {site_id}...")
+            train_cnn_model(file, output_path, window_size, epochs)
+            print(f"[train_all_sites] CNN model trained and saved for site {site_id}")
+        except Exception as e:
+            print(f"[train_all_sites] Error training CNN for site {site_id}: {e}")
+    print("[train_all_sites] All sites processed.")
+
 if __name__ == "__main__":
-    train_models() 
+    train_all_sites() 
