@@ -44,11 +44,9 @@ class DataProcessor:
         df = pd.read_excel(input_file, sheet_name='Data', header=1, usecols=usecols)
         df.columns = [str(col).strip() for col in df.columns]
         
-        # 添加坐标偏移
-        # 向北140米 ≈ 0.00126度纬度
-        # 向东115米（原120米向东，新增5米向西）≈ 0.00129度经度（在墨尔本纬度下）
-        df['NB_LATITUDE'] = df['NB_LATITUDE'] + 0.00126  # 北移140米
-        df['NB_LONGITUDE'] = df['NB_LONGITUDE'] + 0.00129  # 东移115米
+      
+        df['NB_LATITUDE'] = df['NB_LATITUDE'] + 0.00126  
+        df['NB_LONGITUDE'] = df['NB_LONGITUDE'] + 0.00129  
         
         # Print available columns for debugging
         print("Available columns:", df.columns.tolist())
@@ -244,33 +242,64 @@ class DataProcessor:
                 # Calculate distance using Haversine formula
                 lat1, lon1 = coord1['lat'], coord1['lon']
                 lat2, lon2 = coord2['lat'], coord2['lon']
-                lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-                dlat = lat2 - lat1
-                dlon = lon2 - lon1
-                a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-                c = 2 * np.arcsin(np.sqrt(a))
-                distance = 6371 * c  # Earth's radius in km
+                
+                # 使用更适合城市尺度的距离计算
+                # 1度纬度约等于111.32公里
+                # 1度经度在墨尔本（约-37.8度纬度）约等于88.7公里
+                lat_diff = abs(lat2 - lat1) * 111.32
+                lon_diff = abs(lon2 - lon1) * 88.7
+                distance = np.sqrt(lat_diff**2 + lon_diff**2)  # 直线距离（公里）
+                
+                # 添加1.3的系数来估计实际道路距离（考虑道路不是直线）
+                distance = distance * 1.3
+                
+                print(f"Distance between {site1} and {site2}: {distance:.2f} km")
+                
                 # Get traffic volume for origin site
                 site1_data = df[df['site_id'] == site1]
                 if len(site1_data) == 0:
                     continue
                 volume_cols = [col for col in site1_data.columns if str(col).startswith('V')]
                 avg_flow = site1_data[volume_cols].mean().mean()
+                print(f"\nCalculating speed for flow: {avg_flow:.2f} vehicles/hour")
+                
+                # 速度计算
                 a_coef = -1.4648375
                 b_coef = 93.75
                 c_coef = -avg_flow
                 discriminant = b_coef**2 - 4*a_coef*c_coef
+                print(f"Quadratic equation: {a_coef}v² + {b_coef}v + {c_coef} = 0")
+                print(f"Discriminant: {discriminant}")
+                
                 if discriminant < 0:
                     speed = speed_limit
+                    print(f"Discriminant < 0, using speed limit: {speed} km/h")
                 else:
                     speed1 = (-b_coef + np.sqrt(discriminant)) / (2*a_coef)
                     speed2 = (-b_coef - np.sqrt(discriminant)) / (2*a_coef)
+                    print(f"Two possible speeds: {speed1:.2f} km/h and {speed2:.2f} km/h")
+                    
                     if avg_flow <= 351:
-                        speed = min(speed1, speed2)
-                    else:
+                        # 流量小，道路未达到容量，选择较大速度（绿线）
                         speed = max(speed1, speed2)
+                        print(f"Flow <= 351 (under capacity), using higher speed (green line): {speed:.2f} km/h")
+                    else:
+                        # 流量大，道路超过容量，选择较小速度（红线）
+                        speed = min(speed1, speed2)
+                        print(f"Flow > 351 (over capacity), using lower speed (red line): {speed:.2f} km/h")
+                    
                     speed = min(speed, speed_limit)
+                    if speed == speed_limit:
+                        print(f"Speed capped at limit: {speed_limit} km/h")
+                
+                # 验证计算的速度是否合理
+                calculated_flow = -1.4648375 * (speed**2) + 93.75 * speed
+                print(f"Verification - calculated flow for speed {speed:.2f}: {calculated_flow:.2f}")
+                print(f"Original flow: {avg_flow:.2f}")
+                
                 travel_time = (distance / speed) * 60 + (intersection_delay / 60)
+                # 添加时间调试输出
+                print(f"Travel time: {travel_time:.2f} minutes (distance: {distance:.2f} km, speed: {speed:.2f} km/h, intersection delay: {intersection_delay} s)")
                 # Add bidirectional edges
                 edges.append((site1, site2, travel_time))
                 edges.append((site2, site1, travel_time))
