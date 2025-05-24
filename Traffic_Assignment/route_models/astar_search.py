@@ -1,45 +1,57 @@
-import heapq, math
-from collections import defaultdict
+import heapq
 
-# Coordinates of each node, used to calculate heuristic (Euclidean distance)
-positions = {1:(4,1), 2:(2,2), 3:(4,4), 4:(6,3), 5:(5,6), 6:(7,5)}
+def heuristic(a, b, coordinates=None):
+    if coordinates and a in coordinates and b in coordinates:
+        lat1, lon1 = coordinates[a]['lat'], coordinates[a]['lon']
+        lat2, lon2 = coordinates[b]['lat'], coordinates[b]['lon']
+        return ((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2) ** 0.5
+    return 0
 
-# Edges with associated travel costs
-edges = {
-    (2,1):4, (3,1):5, (1,3):5, (2,3):4, (3,2):5, (4,1):6, (1,4):6, (4,3):5,
-    (3,5):6, (5,3):6, (4,5):7, (5,4):8, (6,3):7, (3,6):7
-}
-
-# Build graph as adjacency list
-def build_graph():
-    g = defaultdict(list)
-    for (u, v), cost in edges.items():
-        g[u].append((v, cost))
-    return g
-
-# Heuristic function: straight-line (Euclidean) distance between nodes
-def heuristic(a, b):
-    x1, y1 = positions[a]
-    x2, y2 = positions[b]
-    return math.hypot(x2 - x1, y2 - y1)
-
-# A* Search Algorithm
-def astar(graph, start, goal):
-    open_set = [(0, 0, start, [])]  # (f = g + h, g, node, path)
-    visited = {}
-    while open_set:
-        f, g, node, path = heapq.heappop(open_set)
-        if node in visited and visited[node] <= g:
+def astar(graph, start, goal, coordinates=None):
+    """
+    A* Search to find the shortest path from start to goal.
+    Args:
+        graph (dict): {site_id: [(neighbor_id, weight), ...]}
+        start (str): Starting site ID
+        goal (str): Goal site ID
+        coordinates (dict): Optional, for heuristic
+    Returns:
+        tuple: (path, total_cost) where path is a list of site IDs
+    """
+    queue = [(0, start, [start], 0)]  # (priority, current, path, cost_so_far)
+    visited = set()
+    while queue:
+        priority, current, path, cost_so_far = heapq.heappop(queue)
+        if current == goal:
+            return path, cost_so_far
+        if current in visited:
             continue
-        visited[node] = g
-        new_path = path + [node]
-        if node == goal:
-            return new_path, g  # Return final path and total cost
-        for neighbor, cost in graph[node]:
-            g_new = g + cost
-            f_new = g_new  # No heuristic
-            heapq.heappush(open_set, (f_new, g_new, neighbor, new_path))
-    return [], 0  # Return empty path if goal not reachable
+        visited.add(current)
+        for neighbor, weight in graph.get(current, []):
+            if neighbor not in visited:
+                h = heuristic(neighbor, goal, coordinates)
+                heapq.heappush(queue, (cost_so_far + weight + h, neighbor, path + [neighbor], cost_so_far + weight))
+    return [], float('inf')
+
+def build_graph(edges=None, coordinates=None):
+    """
+    Build a graph representation from edges list.
+    Args:
+        edges: list of (origin, dest, weight) tuples
+        coordinates: dict of site coordinates (optional)
+    Returns:
+        dict: Graph representation where each node maps to a list of (neighbor, weight) tuples
+    """
+    graph = {}
+    if edges:
+        for origin, dest, weight in edges:
+            if origin not in graph:
+                graph[origin] = []
+            if dest not in graph:
+                graph[dest] = []
+            graph[origin].append((dest, weight))
+            graph[dest].append((origin, weight))  # Add reverse edge for undirected graph
+    return graph
 
 # Run A* on each destination
 if __name__ == '__main__':

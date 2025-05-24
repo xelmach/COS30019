@@ -4,9 +4,9 @@ import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QSpinBox,
-    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy, QListWidget, QListWidgetItem, QAbstractItemView
+    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy, QListWidget, QListWidgetItem, QAbstractItemView, QScrollArea, QDateEdit, QTimeEdit
 )
-from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QThread
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QThread, QDate, QTime
 from PyQt5.QtGui import QPixmap
 import folium
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
         
         # Create title label
         self.title_label = QLabel("Traffic-based Route Guidance System (TBRGS)")
-        self.title_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #888; margin-bottom: 12px;")
+        self.title_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #fff; margin-bottom: 12px;")
         self.title_label.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.title_label)
         
@@ -92,16 +92,14 @@ class MainWindow(QMainWindow):
         
         # Initialize route finder
         self.route_finder = RouteFinder()
-        if edges and coordinates:
-            self.route_finder.build_graph(edges, coordinates)
-            self.real_graph = self.build_real_graph(edges)
+        # Build the real graph from the provided edges (undirected)
+        self.real_graph = self.build_real_graph(edges) if edges else {}
         
         # Initialize progress signal
         self.progress = TrainingProgress()
         
         # Create tabs
-        self.tab_widget.addTab(self._create_route_tab(), "Route")
-        self.tab_widget.addTab(self._create_prediction_tab(), "Prediction")
+        self.tab_widget.addTab(self._create_route_tab(), "Route Planning")
         self.tab_widget.addTab(self._create_settings_tab(), "Settings")
 
         # Set dark theme as default, after theme_combo is created
@@ -117,6 +115,8 @@ class MainWindow(QMainWindow):
 
         self.prediction_result_signal.connect(self._update_prediction_result)
 
+        self.ors_cache = {}  # Cache for ORS polyline results
+
     def _delayed_initialize_sites(self):
         """Initialize site dropdowns with a delay to ensure proper widget creation."""
         try:
@@ -131,11 +131,11 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'origin_combo'):
                 self.origin_combo.clear()
                 self.combo_boxes.append(self.origin_combo)
-                for _, row in sites.iterrows():
-                    display_text = f"{row['site_id']} - {row['Location']}"
-                    self.origin_combo.addItem(display_text)
-                if self.origin_combo.count() > 0:
-                    self.origin_combo.setCurrentIndex(0)
+            for _, row in sites.iterrows():
+                display_text = f"{row['site_id']} - {row['Location']}"
+                self.origin_combo.addItem(display_text)
+            if self.origin_combo.count() > 0:
+                self.origin_combo.setCurrentIndex(0)
             
             if hasattr(self, 'dest_combo'):
                 self.dest_combo.clear()
@@ -143,18 +143,8 @@ class MainWindow(QMainWindow):
                 for _, row in sites.iterrows():
                     display_text = f"{row['site_id']} - {row['Location']}"
                     self.dest_combo.addItem(display_text)
-                if self.dest_combo.count() > 0:
-                    self.dest_combo.setCurrentIndex(0)
-            
-            # Initialize prediction tab sites
-            if hasattr(self, 'site_combo'):
-                self.site_combo.clear()
-                self.combo_boxes.append(self.site_combo)
-                for _, row in sites.iterrows():
-                    display_text = f"{row['site_id']} - {row['Location']}"
-                    self.site_combo.addItem(display_text)
-                if self.site_combo.count() > 0:
-                    self.site_combo.setCurrentIndex(0)
+            if self.dest_combo.count() > 0:
+                self.dest_combo.setCurrentIndex(0)
             
             # Populate waypoints list
             if hasattr(self, 'waypoints_list'):
@@ -163,7 +153,7 @@ class MainWindow(QMainWindow):
                     item = QListWidgetItem(f"{row['site_id']} - {row['Location']}")
                     item.setData(Qt.UserRole, str(row['site_id']))
                     self.waypoints_list.addItem(item)
-            
+                
         except Exception as e:
             self.logger.error(f"Error initializing sites: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error initializing sites: {str(e)}")
@@ -227,81 +217,99 @@ class MainWindow(QMainWindow):
         self.map_widget.setHtml(data.getvalue().decode())
         
     def _create_route_tab(self):
-        widget = QWidget()
-        widget.setStyleSheet("background: #232629;")
-        layout = QVBoxLayout(widget)
-        layout.setSpacing(16)
-        layout.setContentsMargins(16, 16, 16, 16)
+        main_widget = QWidget()
+        main_layout = QHBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Card-like, dark, rounded controls area
-        controls_frame = QFrame()
-        controls_frame.setStyleSheet("QFrame { background: #232629; border-radius: 18px; padding: 32px 32px 24px 32px; }")
-        controls_layout = QVBoxLayout(controls_frame)
-        controls_layout.setSpacing(18)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
+        # Sidebar (full black theme)
+        sidebar = QFrame()
+        sidebar.setStyleSheet("""
+            QFrame { background: #181c20; border-radius: 16px; }
+            QLabel#title { font-size: 24px; font-weight: bold; color: #fff; margin-bottom: 18px; }
+            QPushButton { background: #1677ff; color: #fff; font-size: 17px; font-weight: bold; border-radius: 8px; padding: 12px 0; }
+            QPushButton:hover { background: #409eff; }
+            QLineEdit, QComboBox, QDateEdit, QTimeEdit { font-size: 14px; border-radius: 8px; padding: 6px 8px; border: 1.5px solid #23272b; background: #23272b; color: #fff; min-height: 28px; max-height: 32px; }
+            QLabel#legend { color: #bbb; font-size: 16px; margin-top: 18px; }
+        """)
+        sidebar.setFixedWidth(390)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(28, 28, 28, 28)
+        sidebar_layout.setSpacing(18)
 
-        # Origin selection (card style)
-        origin_card = QFrame()
-        origin_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 8px 24px; }")
-        origin_layout = QHBoxLayout(origin_card)
-        origin_layout.setContentsMargins(0, 0, 0, 0)
-        origin_label = QLabel("Origin Site:")
+        # Title
+        title = QLabel("Route Request")
+        title.setObjectName("title")
+        sidebar_layout.addWidget(title)
+
+        # Origin site dropdown
         self.origin_combo = QComboBox()
+        self.origin_combo.setEditable(False)
+        self.origin_combo.setInsertPolicy(QComboBox.NoInsert)
         self.origin_combo.setMinimumHeight(36)
-        origin_layout.addWidget(origin_label)
-        origin_layout.addWidget(self.origin_combo)
-        controls_layout.addWidget(origin_card)
+        self.origin_combo.setStyleSheet("QComboBox { background: #23272b; color: #fff; }")
+        site_options = [f"{row['site_id']} - {row['Location']}" for _, row in self.df[['site_id', 'Location']].drop_duplicates().sort_values('site_id').iterrows()]
+        self.origin_combo.addItems(site_options)
+        sidebar_layout.addWidget(self.origin_combo)
 
-        # Destination selection (card style)
-        dest_card = QFrame()
-        dest_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 8px 24px; }")
-        dest_layout = QHBoxLayout(dest_card)
-        dest_layout.setContentsMargins(0, 0, 0, 0)
-        dest_label = QLabel("Destination Site:")
+        # Destination site dropdown
         self.dest_combo = QComboBox()
+        self.dest_combo.setEditable(False)
+        self.dest_combo.setInsertPolicy(QComboBox.NoInsert)
         self.dest_combo.setMinimumHeight(36)
-        dest_layout.addWidget(dest_label)
-        dest_layout.addWidget(self.dest_combo)
-        controls_layout.addWidget(dest_card)
+        self.dest_combo.setStyleSheet("QComboBox { background: #23272b; color: #fff; }")
+        self.dest_combo.addItems(site_options)
+        sidebar_layout.addWidget(self.dest_combo)
 
-        # Find routes button (full width, bright, rounded)
-        find_routes_btn = QPushButton("Find Routes")
-        find_routes_btn.setMinimumHeight(54)
-        find_routes_btn.setMaximumHeight(62)
-        from PyQt5.QtWidgets import QSizePolicy
-        find_routes_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        find_routes_btn.setStyleSheet("QPushButton { background-color: #888; color: #fff; font-size: 17px; font-weight: 600; border-radius: 10px; padding: 10px 0; margin-top: 18px; border: none; transition: background 0.2s; } QPushButton:hover { background-color: #aaa; } QPushButton:pressed { background-color: #555; }")
-        find_routes_btn.clicked.connect(self._find_routes)
-        controls_layout.addWidget(find_routes_btn)
+        # Model dropdown: LSTM, GRU, CNN
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(["LSTM", "GRU", "CNN"])
+        sidebar_layout.addWidget(self.model_combo)
 
-        layout.addWidget(controls_frame)
+        # Algorithm dropdown: A*, BFS, DFS, GBFS, CUS1, CUS2
+        self.algo_combo = QComboBox()
+        self.algo_combo.addItems(["A*", "BFS", "DFS", "GBFS", "CUS1", "CUS2"])
+        sidebar_layout.addWidget(self.algo_combo)
 
-        # Map view and route summary side by side
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("QSplitter { background: #232629; }")
-        self.map_view = QWebEngineView()
-        splitter.addWidget(self.map_view)
+        # Date and Time inputs
+        self.date_input = QDateEdit()
+        self.date_input.setDisplayFormat("yyyy-MM-dd")
+        self.date_input.setCalendarPopup(True)
+        self.date_input.setDate(QDate.currentDate())
+        sidebar_layout.addWidget(self.date_input)
 
-        # Route summary card
-        summary_card = QFrame()
-        summary_card.setStyleSheet("QFrame { background: #232629; border-radius: 16px; border: 1.5px solid #888; padding: 0; }")
-        summary_layout = QVBoxLayout(summary_card)
-        summary_layout.setContentsMargins(0, 0, 0, 0)
-        self.route_summary = QTextEdit()
-        self.route_summary.setReadOnly(True)
-        self.route_summary.setStyleSheet("QTextEdit { background: #232629; color: #f0f0f0; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
-        self.route_summary.setMinimumWidth(320)
-        self.route_summary.setMaximumWidth(480)
-        self.route_summary.setHtml('<span style="color:#888;font-size:15px;">Route summary will appear here after you search for routes.</span>')
-        summary_layout.addWidget(self.route_summary)
-        splitter.addWidget(summary_card)
-        splitter.setSizes([900, 350])
-        layout.addWidget(splitter)
+        self.time_input = QTimeEdit()
+        self.time_input.setDisplayFormat("HH:mm")
+        self.time_input.setTime(QTime.currentTime())
+        sidebar_layout.addWidget(self.time_input)
 
-        # Initialize map with default view of Melbourne
+        # Search Button
+        search_btn = QPushButton("Search")
+        search_btn.clicked.connect(self._find_routes)
+        sidebar_layout.addWidget(search_btn)
+
+        # Results area (dark card style)
+        self.results_area = QScrollArea()
+        self.results_area.setWidgetResizable(True)
+        self.results_content = QWidget()
+        self.results_layout = QVBoxLayout(self.results_content)
+        self.results_content.setLayout(self.results_layout)
+        self.results_area.setWidget(self.results_content)
+        self.results_area.setStyleSheet("QScrollArea { background: #181c20; border: none; }")
+        sidebar_layout.addWidget(self.results_area, 1)
+
+        main_layout.addWidget(sidebar)
+
+        # Map area (make sure it's initialized and shown)
+        if not hasattr(self, 'map_view'):
+            from PyQt5.QtWebEngineWidgets import QWebEngineView
+            self.map_view = QWebEngineView()
+        main_layout.addWidget(self.map_view, 1)
+
+        # Always initialize the map!
         self._initialize_map()
 
-        return widget
+        return main_widget
         
     def _initialize_map(self):
         """Initialize the map with a default view of Melbourne."""
@@ -330,177 +338,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.logger.error(f"Error initializing map: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error initializing map: {str(e)}")
-        
-    def _create_prediction_tab(self):
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Left: Controls panel
-        controls_panel = QFrame()
-        controls_panel.setStyleSheet("QFrame { background: transparent; }")
-        controls_panel.setFixedWidth(380)
-        controls_panel_layout = QVBoxLayout(controls_panel)
-        controls_panel_layout.setContentsMargins(24, 4, 24, 24)
-        controls_panel_layout.setSpacing(0)
-        controls_panel_layout.addStretch(1)
-
-        # Model selection dropdown
-        model_card = QFrame()
-        model_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 4px 24px 16px 24px; margin-top: 2px; }")
-        model_layout = QVBoxLayout(model_card)
-        model_layout.setContentsMargins(0, 0, 0, 0)
-        model_layout.setSpacing(12)
-        model_label = QLabel("Model:")
-        model_label.setStyleSheet("font-weight: 600; font-size: 17px; color: #f0f0f0; margin: 0 0 1px 0; padding-top: 1px; padding-bottom: 1px;")
-        model_label.setAlignment(Qt.AlignCenter)
-        model_label.setWordWrap(True)
-        self.model_combo = QComboBox()
-        self.model_combo.setMinimumHeight(36)
-        self.model_combo.setStyleSheet(
-            "QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
-            "QComboBox::drop-down { border: none; background: transparent; }"
-            "QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }"
-        )
-        self.model_combo.addItems(["LSTM", "GRU", "CNN"])
-        model_layout.addWidget(model_label)
-        model_layout.addWidget(self.model_combo)
-        controls_panel_layout.addWidget(model_card, alignment=Qt.AlignTop)
-
-        # Site selection
-        site_card = QFrame()
-        site_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 4px 24px 16px 24px; margin-top: 2px; }")
-        site_layout = QVBoxLayout(site_card)
-        site_layout.setContentsMargins(0, 0, 0, 0)
-        site_layout.setSpacing(12)
-        site_label = QLabel("Site:")
-        site_label.setStyleSheet("font-weight: 600; font-size: 17px; color: #f0f0f0; margin: 0 0 1px 0; padding-top: 1px; padding-bottom: 1px;")
-        site_label.setAlignment(Qt.AlignCenter)
-        site_label.setWordWrap(True)
-        self.site_combo = QComboBox()
-        self.site_combo.setMinimumHeight(36)
-        self.site_combo.setStyleSheet(
-            "QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
-            "QComboBox::drop-down { border: none; background: transparent; }"
-            "QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }"
-        )
-        site_layout.addWidget(site_label)
-        site_layout.addWidget(self.site_combo)
-        controls_panel_layout.addWidget(site_card, alignment=Qt.AlignTop)
-
-        # Prediction horizonye
-        horizon_card = QFrame()
-        horizon_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 12px 12px 24px 12px; }")
-        horizon_layout = QVBoxLayout(horizon_card)
-        horizon_layout.setContentsMargins(0, 0, 0, 0)
-        horizon_layout.setSpacing(8)
-        horizon_label = QLabel("Prediction Horizon (hours):")
-        horizon_label.setStyleSheet("font-weight: 600; font-size: 16px; color: #f0f0f0; margin: 0 0 8px 0; padding-top: 1px; padding-bottom: 1px;")
-        self.horizon_spin = QSpinBox()
-        self.horizon_spin.setRange(1, 3)  # Only allow 1, 2, or 3 hours
-        self.horizon_spin.setValue(1)
-        self.horizon_spin.setMinimumHeight(38)
-        self.horizon_spin.setStyleSheet(
-            "QSpinBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
-        )
-        horizon_layout.addWidget(horizon_label)
-        horizon_layout.addWidget(self.horizon_spin)
-        controls_panel_layout.addWidget(horizon_card, alignment=Qt.AlignTop)
-
-        # Predict button (in controls card)
-        self.predict_btn = QPushButton("Predict Traffic")
-        self.predict_btn.setMinimumHeight(54)
-        self.predict_btn.setMinimumWidth(0)
-        self.predict_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.predict_btn.clicked.connect(self._predict_traffic)
-        controls_panel_layout.addWidget(self.predict_btn)
-
-        # Cancel button (in controls card, hidden by default)
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setMinimumHeight(54)
-        self.cancel_btn.setMinimumWidth(0)
-        self.cancel_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.cancel_btn.setStyleSheet(
-            "QPushButton { background: #c00; color: #fff; border-radius: 10px; font-size: 17px; font-weight: 600; padding: 10px 0; border: none; }"
-            "QPushButton:hover { background: #e33; }"
-        )
-        self.cancel_btn.clicked.connect(self._cancel_training)
-        self.cancel_btn.setVisible(False)
-        controls_panel_layout.addWidget(self.cancel_btn)
-
-        controls_panel_layout.addStretch(1)
-        controls_panel_layout.addStretch(2)
-
-        # Right: Graph and summary
-        right_panel = QFrame()
-        right_panel.setStyleSheet("QFrame { background: transparent; }")
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setSpacing(8)
-        right_layout.setContentsMargins(0, 32, 32, 32)
-
-        # Graph card
-        graph_card = QFrame()
-        graph_card.setStyleSheet(
-            "QFrame { background: #232629; border-radius: 16px; border: 1.5px solid #888; padding: 0; margin-bottom: 0; }"
-        )
-        graph_layout = QVBoxLayout(graph_card)
-        graph_layout.setContentsMargins(8, 8, 8, 8)
-        graph_layout.setSpacing(0)
-        self.prediction_label = QLabel()
-        self.prediction_label.setAlignment(Qt.AlignCenter)
-        self.prediction_label.setMinimumHeight(320)
-        self.prediction_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.prediction_label.setScaledContents(True)
-        self.prediction_label.setStyleSheet(
-            "QLabel { background: #232629; color: #b0b0b0; border: none; border-radius: 16px; font-size: 18px; padding: 0; }"
-        )
-        self.prediction_label.setText('<div style="color:#888;font-size:18px;line-height:1.6;">\n<span style="font-size:48px;">📈</span><br>Click "Predict Traffic" to generate a prediction.</div>')
-        graph_layout.addWidget(self.prediction_label)
-        right_layout.addWidget(graph_card)
-
-        # Progress bar and Cancel button (between graph and summary)
-        progress_cancel_layout = QHBoxLayout()
-        progress_cancel_layout.setContentsMargins(0, 0, 0, 0)
-        progress_cancel_layout.setSpacing(8)
-        self.training_progress_bar = QProgressBar()
-        self.training_progress_bar.setMinimum(0)
-        self.training_progress_bar.setMaximum(100)
-        self.training_progress_bar.setValue(0)
-        self.training_progress_bar.setTextVisible(False)
-        self.training_progress_bar.setVisible(False)
-        self.training_progress_bar.setMinimumHeight(2)
-        self.training_progress_bar.setMaximumHeight(2)
-        self.training_progress_bar.setStyleSheet(
-            "QProgressBar { border: none; border-radius: 1px; height: 2px; background: #232629; margin: 0 8px 0 8px; }"
-            "QProgressBar::chunk { background-color: #fff; border-radius: 1px; }"
-        )
-        progress_cancel_layout.addWidget(self.training_progress_bar)
-        right_layout.addLayout(progress_cancel_layout)
-
-        # Summary card
-        summary_card = QFrame()
-        summary_card.setStyleSheet(
-            "QFrame { background: #232629; border-radius: 16px; border: 1.5px solid #888; padding: 0; }"
-        )
-        summary_layout = QVBoxLayout(summary_card)
-        summary_layout.setContentsMargins(0, 0, 0, 0)
-        self.prediction_summary = QTextEdit()
-        self.prediction_summary.setReadOnly(True)
-        self.prediction_summary.setStyleSheet(
-            "QTextEdit { background: #232629; color: #f0f0f0; border-radius: 14px; font-size: 16px; padding: 24px; margin: 0; border: none; }"
-        )
-        self.prediction_summary.setMinimumHeight(200)
-        self.prediction_summary.setHtml('<div style="color:#888;font-size:16px;">Prediction summary will appear here after you run a prediction.</div>')
-        summary_layout.addWidget(self.prediction_summary)
-        right_layout.addWidget(summary_card)
-
-        layout.addWidget(controls_panel)
-        layout.addWidget(right_panel)
-        layout.setStretch(0, 3)
-        layout.setStretch(1, 7)
-
-        return widget
         
     def _create_settings_tab(self):
         widget = QWidget()
@@ -785,156 +622,233 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'prediction_summary'):
                 self.prediction_summary.setStyleSheet("QTextEdit { background: #f5f6fa; color: #232629; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
 
+    def get_road_polyline(self, origin_coords, dest_coords):
+        """Get a road-following polyline between two coordinates using OpenRouteService, with timeout, robust fallback, and caching."""
+        key = (round(origin_coords[0], 6), round(origin_coords[1], 6), round(dest_coords[0], 6), round(dest_coords[1], 6))
+        if key in self.ors_cache:
+            return self.ors_cache[key]
+        try:
+            import openrouteservice
+            import requests
+            ORS_API_KEY = '5b3ce3597851110001cf62482f7615690eae478583e68e57c8f1143f'
+            client = openrouteservice.Client(key=ORS_API_KEY, timeout=5)
+            coords = ((origin_coords[1], origin_coords[0]), (dest_coords[1], dest_coords[0]))  # (lon, lat)
+            try:
+                route = client.directions(coords, profile='driving-car', format='geojson')
+                road_coords = route['features'][0]['geometry']['coordinates']
+                road_coords_latlon = [(lat, lon) for lon, lat in road_coords]
+                self.ors_cache[key] = road_coords_latlon
+                return road_coords_latlon
+            except (openrouteservice.exceptions.ApiError, requests.exceptions.Timeout, Exception) as e:
+                print(f"ORS API error or timeout for segment {origin_coords} -> {dest_coords}: {e}")
+                self.ors_cache[key] = [(origin_coords[0], origin_coords[1]), (dest_coords[0], dest_coords[1])]
+                return self.ors_cache[key]
+        except Exception as e:
+            print(f"Error setting up ORS client or unknown error: {e}")
+            self.ors_cache[key] = [(origin_coords[0], origin_coords[1]), (dest_coords[0], dest_coords[1])]
+            return self.ors_cache[key]
+
     def _find_routes(self):
+        from PyQt5.QtWidgets import QProgressDialog, QApplication
+        progress = QProgressDialog("Calculating route...", None, 0, 0, self)
+        progress.setWindowTitle("Please wait")
+        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.processEvents()
         try:
             origin_text = self.origin_combo.currentText()
             dest_text = self.dest_combo.currentText()
             origin_id = origin_text.split(' - ')[0]
             dest_id = dest_text.split(' - ')[0]
-            origin_data = self.df[self.df['site_id'].astype(str) == str(origin_id)]
-            dest_data = self.df[self.df['site_id'].astype(str) == str(dest_id)]
-            if len(origin_data) == 0 or len(dest_data) == 0:
-                QMessageBox.warning(self, "Error", "No data found for origin or destination site.")
-                self.route_summary.setText("")
+            print(f"Finding route from {origin_id} to {dest_id}")  # Debug log
+            date_str = self.date_input.date().toString("yyyy-MM-dd")
+            time_str = self.time_input.time().toString("HH:mm")
+            model_name = self.model_combo.currentText()
+            algo = self.algo_combo.currentText()
+            graph = self.real_graph
+            if not graph:
+                print("Error: Graph is empty")
+                QMessageBox.warning(self, "Error", "Graph is not properly initialized.")
                 return
-            origin_coords = (origin_data.iloc[0]['NB_LATITUDE'], origin_data.iloc[0]['NB_LONGITUDE'])
-            dest_coords = (dest_data.iloc[0]['NB_LATITUDE'], dest_data.iloc[0]['NB_LONGITUDE'])
-            progress = QProgressDialog("Calculating routes...", "Cancel", 0, 100, self)
-            progress.setWindowTitle("Route Calculation")
-            progress.setWindowModality(Qt.WindowModal)
-            progress.setMinimumDuration(0)
-            progress.setValue(0)
-            progress.show()
-            progress.setLabelText("Analyzing traffic flow...")
-            progress.setValue(10)
-            QApplication.processEvents()
-            time_columns = [col for col in self.df.columns if (':' in str(col)) or (str(col).startswith('V') and str(col)[1:].isdigit() and len(str(col)) == 3)]
-            edge_flows = {}
-            for u, edges in self.real_graph.items():
-                for v, _ in edges:
-                    u_data = self.df[self.df['site_id'].astype(str) == str(u)][time_columns].mean().mean()
-                    v_data = self.df[self.df['site_id'].astype(str) == str(v)][time_columns].mean().mean()
-                    edge_flows[(str(u), str(v))] = (u_data + v_data) / 2
-            max_flow = max(edge_flows.values()) if edge_flows else 1
-            edge_times = {edge: (flow / max_flow) * 30 for edge, flow in edge_flows.items()}
-            # Call the new find_top_k_assignment_routes method from route_finder.py
-            routes = self.route_finder.find_top_k_assignment_routes(origin_id, dest_id, k=3)
-            fastest_route = routes[0] if len(routes) > 0 else None
-            alternative_route = routes[1] if len(routes) > 1 else None
-            if not fastest_route:
+            print(f"Graph nodes: {list(graph.keys())}")
+            print(f"Origin node connections: {graph.get(origin_id, [])}")
+            print(f"Destination node connections: {graph.get(dest_id, [])}")
+
+            # --- Routing: Use selected algorithm to generate up to 5 unique routes ---
+            from route_models.astar_search import astar
+            from route_models.bfs_search import bfs
+            from route_models.dfs_search import dfs
+            from route_models.gbfs_search import gbfs
+            from route_models.cus1_search import cus1_search
+            from route_models.cus2_search import cus2_search
+
+            def get_k_unique_routes(algo, graph, origin, dest, k=5):
+                routes = []
+                blocked_edges = set()
+                max_attempts = 30  # Try more times to find alternatives
+                attempts = 0
+                while len(routes) < k and attempts < max_attempts:
+                    mod_graph = {node: [(nbr, w) for nbr, w in nbrs if (node, nbr) not in blocked_edges] for node, nbrs in graph.items()}
+                    path = []
+                    if algo == "A*":
+                        path, _ = astar(mod_graph, origin, dest)
+                    elif algo == "BFS":
+                        path = bfs(mod_graph, origin, [dest])
+                    elif algo == "DFS":
+                        path = dfs(mod_graph, origin, dest)
+                    elif algo == "GBFS":
+                        path, _ = gbfs(mod_graph, origin, dest)
+                    elif algo == "CUS1":
+                        path = cus1_search(mod_graph, origin, dest)
+                    elif algo == "CUS2":
+                        _, _, _, path = cus2_search(mod_graph, origin, dest)
+                    print(f"Attempt {len(routes) + 1}: Found path: {path}")
+                    if not path or len(path) < 2:
+                        break
+                    # Only check for exact duplicate paths
+                    if all(path != r[0] for r in routes):
+                        routes.append((path, 0))
+                        # Block all edges in this path (except start/end)
+                        for i in range(1, len(path)):
+                            blocked_edges.add((path[i-1], path[i]))
+                    attempts += 1
+                return routes[:k]
+
+            routes = get_k_unique_routes(algo, graph, origin_id, dest_id, k=5)
+            if not routes or len(routes) < 1:
+                print("No routes found")
                 QMessageBox.warning(self, "Error", "No route found.")
-                self.route_summary.setText("")
                 return
-            # Visualization: red first (thinner), then blue (thicker) on top
-            colors = ['#FF4136', '#0074D9']  # red, blue
-            weights = [4, 8]
-            m = folium.Map(location=origin_coords, zoom_start=12)
-            draw_order = [0, 1] if alternative_route else [0]
-            for idx in draw_order:
-                if idx == 0:
-                    draw_route, travel_time = fastest_route
-                    color = colors[1]  # blue
-                    weight = weights[1]
-                else:
-                    draw_route, travel_time = alternative_route
-                    color = colors[0]  # red
-                    weight = weights[0]
-                road_route_coords = []
-                for j in range(len(draw_route) - 1):
-                    node_a = draw_route[j]
-                    node_b = draw_route[j+1]
-                    node_a_data = self.df[self.df['site_id'].astype(str) == str(node_a)]
-                    node_b_data = self.df[self.df['site_id'].astype(str) == str(node_b)]
-                    if len(node_a_data) == 0 or len(node_b_data) == 0:
-                        continue
-                    coords_a = (node_a_data.iloc[0]['NB_LATITUDE'], node_a_data.iloc[0]['NB_LONGITUDE'])
-                    coords_b = (node_b_data.iloc[0]['NB_LATITUDE'], node_b_data.iloc[0]['NB_LONGITUDE'])
-                    segment = self.get_road_route(coords_a, coords_b)
-                    if segment:
-                        if road_route_coords and road_route_coords[-1] == segment[0]:
-                            road_route_coords.extend(segment[1:])
-                        else:
-                            road_route_coords.extend(segment)
-                if road_route_coords:
-                    folium.PolyLine(
-                        road_route_coords,
-                        color=color,
-                        weight=weight,
-                        opacity=1.0,
-                        popup=f"Route {idx+1} - Travel Time: {travel_time:.1f} minutes"
-                    ).add_to(m)
-                for site_id in draw_route:
-                    site_data = self.df[self.df['site_id'].astype(str) == str(site_id)]
-                    if len(site_data) == 0:
-                        continue
-                    coords = (site_data.iloc[0]['NB_LATITUDE'], site_data.iloc[0]['NB_LONGITUDE'])
-                    area = site_data.iloc[0]['Location']
-                    folium.CircleMarker(
-                        location=coords,
-                        radius=5,
-                        color=color,
-                        fill=True,
-                        fill_color=color,
-                        fill_opacity=0.8,
-                        tooltip=f"{site_id}: {area}"
-                    ).add_to(m)
-            folium.Marker(
-                origin_coords,
-                popup=f"Origin: {origin_id}",
-                tooltip=f"Origin: {origin_id}",
-                icon=folium.Icon(color='green', icon='home')
-            ).add_to(m)
-            folium.Marker(
-                dest_coords,
-                popup=f"Destination: {dest_id}",
-                tooltip=f"Destination: {dest_id}",
-                icon=folium.Icon(color='red', icon='flag')
-            ).add_to(m)
-            all_site_ids = set(self.df['site_id'].astype(str).unique())
-            route_site_ids = set()
-            for route, _ in [fastest_route, alternative_route] if alternative_route else [fastest_route]:
-                route_site_ids.update(route)
-            origin_site_id = str(origin_id)
-            dest_site_id = str(dest_id)
-            for site_id in all_site_ids:
-                if (site_id in route_site_ids) or (site_id == origin_site_id) or (site_id == dest_site_id):
-                    continue
+            print(f"Found {len(routes)} routes")
+            def flow_to_speed(flow):
+                if flow <= 351:
+                    return 60.0
+                a = -1.4648375
+                b = 93.75
+                c = -flow
+                discriminant = b**2 - 4*a*c
+                if discriminant < 0:
+                    return 10.0
+                sqrt_disc = discriminant ** 0.5
+                speed1 = (-b + sqrt_disc) / (2*a)
+                speed2 = (-b - sqrt_disc) / (2*a)
+                speed = min(speed1, speed2)
+                return max(speed, 5.0)
+            def predict_flow(site_id, model_name, date_str, time_str):
                 site_data = self.df[self.df['site_id'].astype(str) == str(site_id)]
-                if len(site_data) == 0:
-                    continue
-                coords = (site_data.iloc[0]['NB_LATITUDE'], site_data.iloc[0]['NB_LONGITUDE'])
-                area = site_data.iloc[0]['Location']
-                folium.CircleMarker(
-                    location=coords,
-                    radius=4,
-                    color='#888',
-                    fill=True,
-                    fill_color='#888',
-                    fill_opacity=0.7,
-                    tooltip=f"{site_id}: {area}"
-                ).add_to(m)
+                time_columns = [col for col in self.df.columns if (':' in str(col)) or (str(col).startswith('V') and str(col)[1:].isdigit() and len(str(col)) == 3)]
+                if len(site_data) == 0 or len(time_columns) == 0:
+                    return 200.0
+                return site_data[time_columns].mean(axis=1).mean()
+            intersection_delay = 30  # seconds
+            route_infos = []
+            for path, _ in routes:
+                total_time = 0.0
+                total_distance = 0.0
+                for j in range(len(path) - 1):
+                    a = self.df[self.df['site_id'].astype(str) == str(path[j])].iloc[0]
+                    b = self.df[self.df['site_id'].astype(str) == str(path[j+1])].iloc[0]
+                    lat1, lon1 = a['NB_LATITUDE'], a['NB_LONGITUDE']
+                    lat2, lon2 = b['NB_LATITUDE'], b['NB_LONGITUDE']
+                    from math import radians, sin, cos, sqrt, atan2
+                    R = 6371.0
+                    dlat = radians(lat2 - lat1)
+                    dlon = radians(lon2 - lon1)
+                    aa = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+                    c = 2 * atan2(sqrt(aa), sqrt(1-aa))
+                    distance = R * c
+                    total_distance += distance
+                    flow = predict_flow(path[j], model_name, date_str, time_str)
+                    speed = flow_to_speed(flow)
+                    if speed > 0:
+                        time_hr = distance / speed
+                    else:
+                        time_hr = distance / 10.0
+                    time_hr += intersection_delay / 3600.0
+                    total_time += time_hr
+                route_infos.append((path, total_time * 60, total_distance))  # time in minutes
+            import folium
+            map_center = [self.df[self.df['site_id'].astype(str) == str(origin_id)].iloc[0]['NB_LATITUDE'],
+                         self.df[self.df['site_id'].astype(str) == str(origin_id)].iloc[0]['NB_LONGITUDE']]
+            m = folium.Map(location=map_center, zoom_start=13)
+            route_styles = [
+                {"color": "#FF4136", "width": 2},    # 1st: red
+                {"color": "#e67e22", "width": 4},    # 2nd: orange
+                {"color": "#27ae60", "width": 6},    # 3rd: green
+                {"color": "#8e44ad", "width": 8},    # 4th: purple
+                {"color": "#0074D9", "width": 10},   # 5th: blue
+            ]
+            for idx in range(len(route_infos)-1, -1, -1):  # Draw slowest on top, fastest on bottom
+                path, travel_time, distance = route_infos[idx]
+                style = route_styles[idx % len(route_styles)]
+                full_coords = []
+                for j in range(len(path) - 1):
+                    a = self.df[self.df['site_id'].astype(str) == str(path[j])].iloc[0]
+                    b = self.df[self.df['site_id'].astype(str) == str(path[j+1])].iloc[0]
+                    lat1, lon1 = a['NB_LATITUDE'], a['NB_LONGITUDE']
+                    lat2, lon2 = b['NB_LATITUDE'], b['NB_LONGITUDE']
+                    # Use ORS for real road-following polyline
+                    seg_coords = self.get_road_polyline((lat1, lon1), (lat2, lon2))
+                    if not full_coords:
+                        full_coords.extend(seg_coords)
+                    else:
+                        # Avoid duplicating the first point of the segment
+                        full_coords.extend(seg_coords[1:])
+                folium.PolyLine(full_coords, color=style["color"], weight=style["width"], opacity=0.85).add_to(m)
+                if full_coords:
+                    folium.Marker(
+                        full_coords[0],
+                        tooltip="Origin",
+                        icon=folium.Icon(color='green', icon='play', prefix='fa')
+                    ).add_to(m)
+                    folium.Marker(
+                        full_coords[-1],
+                        tooltip="Destination",
+                        icon=folium.Icon(color='red', icon='stop', prefix='fa')
+                    ).add_to(m)
             data = io.BytesIO()
             m.save(data, close_file=False)
             self.map_view.setHtml(data.getvalue().decode())
-            progress.setLabelText("Route calculation complete!")
-            progress.setValue(100)
-            QApplication.processEvents()
+            # --- Sidebar Results ---
+            for i in reversed(range(self.results_layout.count())):
+                widget = self.results_layout.itemAt(i).widget()
+                if widget:
+                    widget.setParent(None)
+            header = QLabel(f"<b>Routes from {origin_id} to {dest_id}</b>")
+            header.setStyleSheet("font-size: 22px; margin-bottom: 18px; color: #fff;")
+            self.results_layout.addWidget(header)
+            route_icons = [
+                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#FF4136;margin-left:12px;vertical-align:middle;"></span>',
+                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#e67e22;margin-left:12px;vertical-align:middle;"></span>',
+                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#27ae60;margin-left:12px;vertical-align:middle;"></span>',
+                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#8e44ad;margin-left:12px;vertical-align:middle;"></span>',
+                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#0074D9;margin-left:12px;vertical-align:middle;"></span>'
+            ]
+            for idx, (path, travel_time, distance) in enumerate(route_infos):
+                icon = route_icons[idx % len(route_icons)]
+                card_html = f"""
+                <div style='background:#23272b; border-radius:18px; margin-bottom:22px; padding:28px 32px; color:#fff; font-size:22px;'>
+                  <b style='font-size:26px; color:#fff;'>
+                    Route {idx+1} <span style='vertical-align:middle;' title='Route color'>{icon}</span>
+                  </b><br>
+                  <span style='font-size:21px; color:#bbb;'><b>Time:</b> {travel_time:.2f} min</span><br>
+                  <span style='font-size:21px; color:#bbb;'><b>Distance:</b> {distance:.2f} km</span><br>
+                  <span style='font-size:18px; color:#888;'><b>Path:</b> {' → '.join(str(s) for s in path)}</span>
+                </div>
+                """
+                card = QLabel(card_html)
+                card.setTextFormat(Qt.RichText)
+                card.setWordWrap(True)
+                card.setStyleSheet("font-size: 22px; margin-bottom: 18px; background: transparent;")
+                self.results_layout.addWidget(card)
+            self.results_layout.addStretch(1)
             progress.close()
-            summary = "<b>Route Summary (K-shortest, blue on top):</b><br><br>"
-            if alternative_route:
-                summary += f"<b>Fastest Route 🔵</b><br> (Travel Time: {fastest_route[1]:.1f} minutes):<br>"
-                summary += " → ".join(fastest_route[0]) + "<br><br>"
-                summary += f"<b>Alternative Route 🔴</b><br> (Travel Time: {alternative_route[1]:.1f} minutes):<br>"
-                summary += " → ".join(alternative_route[0]) + "<br><br>"
-            else:
-                summary += f"<b>Fastest Route 🔵</b><br> (Travel Time: {fastest_route[1]:.1f} minutes):<br>"
-                summary += " → ".join(fastest_route[0]) + "<br><br>"
-            self.route_summary.setText(summary)
         except Exception as e:
+            progress.close()
             error_msg = f"Error finding routes: {str(e)}"
             print(error_msg)
             QMessageBox.warning(self, "Error", error_msg)
-            self.route_summary.setText("")
             return
 
     def get_road_route(self, origin_coords, dest_coords):
@@ -997,7 +911,11 @@ class MainWindow(QMainWindow):
         """
         graph = defaultdict(list)
         for origin, dest, weight in edges:
-            graph[str(origin)].append((str(dest), weight))
+            # Convert to strings and add both directions for undirected graph
+            origin_str = str(origin)
+            dest_str = str(dest)
+            graph[origin_str].append((dest_str, weight))
+            graph[dest_str].append((origin_str, weight))  # Add reverse edge
         return dict(graph)
 
     def offset_coords(self, coords, offset_meters):
@@ -1073,8 +991,8 @@ class MainWindow(QMainWindow):
                     return
                 if not os.path.exists(raw_path):
                     self.prediction_result_signal.emit(None, f"Error: Raw data for site {site_id} not found after export.")
-                    return
-
+                return
+            
             # 2. Ensure normalized data exists
             normalized_path = f"data/scats_{site_id}_normalized.csv"
             if not os.path.exists(normalized_path):
@@ -1104,7 +1022,7 @@ class MainWindow(QMainWindow):
             else:
                 self.prediction_result_signal.emit(None, f"Unknown model: {model_name}")
                 return
-
+            
             if not os.path.exists(model_path):
                 # Show a message while training
                 self.prediction_result_signal.emit(None, f"Training {model_name} model for site {site_id}... Please wait.")

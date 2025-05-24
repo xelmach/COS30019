@@ -44,6 +44,12 @@ class DataProcessor:
         df = pd.read_excel(input_file, sheet_name='Data', header=1, usecols=usecols)
         df.columns = [str(col).strip() for col in df.columns]
         
+        # Add coordinate offset
+        # North 140 meters ≈ 0.00126 degrees latitude
+        # East 115 meters (originally 120m east, then 5m west) ≈ 0.00129 degrees longitude (at Melbourne's latitude)
+        df['NB_LATITUDE'] = df['NB_LATITUDE'] + 0.00126  # Move north 140m
+        df['NB_LONGITUDE'] = df['NB_LONGITUDE'] + 0.00129  # Move east 115m
+        
         # Print available columns for debugging
         print("Available columns:", df.columns.tolist())
         
@@ -238,33 +244,64 @@ class DataProcessor:
                 # Calculate distance using Haversine formula
                 lat1, lon1 = coord1['lat'], coord1['lon']
                 lat2, lon2 = coord2['lat'], coord2['lon']
-                lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-                dlat = lat2 - lat1
-                dlon = lon2 - lon1
-                a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-                c = 2 * np.arcsin(np.sqrt(a))
-                distance = 6371 * c  # Earth's radius in km
+                
+                # Use distance calculation more suitable for city scale
+                # 1 degree latitude ≈ 111.32 kilometers
+                # 1 degree longitude at Melbourne (about -37.8 degrees latitude) ≈ 88.7 kilometers
+                lat_diff = abs(lat2 - lat1) * 111.32
+                lon_diff = abs(lon2 - lon1) * 88.7
+                distance = np.sqrt(lat_diff**2 + lon_diff**2)  # Straight line distance (km)
+                
+                # Add a factor of 1.3 to estimate actual road distance (considering roads are not straight)
+                distance = distance * 1.3
+                
+                print(f"Distance between {site1} and {site2}: {distance:.2f} km")
+                
                 # Get traffic volume for origin site
                 site1_data = df[df['site_id'] == site1]
                 if len(site1_data) == 0:
                     continue
                 volume_cols = [col for col in site1_data.columns if str(col).startswith('V')]
                 avg_flow = site1_data[volume_cols].mean().mean()
+                print(f"\nCalculating speed for flow: {avg_flow:.2f} vehicles/hour")
+                
+                # Speed calculation
                 a_coef = -1.4648375
                 b_coef = 93.75
                 c_coef = -avg_flow
                 discriminant = b_coef**2 - 4*a_coef*c_coef
+                print(f"Quadratic equation: {a_coef}v² + {b_coef}v + {c_coef} = 0")
+                print(f"Discriminant: {discriminant}")
+                
                 if discriminant < 0:
                     speed = speed_limit
+                    print(f"Discriminant < 0, using speed limit: {speed} km/h")
                 else:
                     speed1 = (-b_coef + np.sqrt(discriminant)) / (2*a_coef)
                     speed2 = (-b_coef - np.sqrt(discriminant)) / (2*a_coef)
+                    print(f"Two possible speeds: {speed1:.2f} km/h and {speed2:.2f} km/h")
+                    
                     if avg_flow <= 351:
-                        speed = min(speed1, speed2)
-                    else:
+                        # Under capacity: choose higher speed (green line)
                         speed = max(speed1, speed2)
+                        print(f"Flow <= 351 (under capacity), using higher speed (green line): {speed:.2f} km/h")
+                    else:
+                        # Over capacity: choose lower speed (red line)
+                        speed = min(speed1, speed2)
+                        print(f"Flow > 351 (over capacity), using lower speed (red line): {speed:.2f} km/h")
+                    
                     speed = min(speed, speed_limit)
+                    if speed == speed_limit:
+                        print(f"Speed capped at limit: {speed_limit} km/h")
+                
+                # Verify if calculated speed is reasonable
+                calculated_flow = -1.4648375 * (speed**2) + 93.75 * speed
+                print(f"Verification - calculated flow for speed {speed:.2f}: {calculated_flow:.2f}")
+                print(f"Original flow: {avg_flow:.2f}")
+                
                 travel_time = (distance / speed) * 60 + (intersection_delay / 60)
+                # Add time debug output
+                print(f"Travel time: {travel_time:.2f} minutes (distance: {distance:.2f} km, speed: {speed:.2f} km/h, intersection delay: {intersection_delay} s)")
                 # Add bidirectional edges
                 edges.append((site1, site2, travel_time))
                 edges.append((site2, site1, travel_time))

@@ -8,37 +8,84 @@ edges = {
     (6,3): 7, (3,6): 7
 }
 
-# Convert edges into an adjacency list
-def build_graph():
-    graph = defaultdict(list)
-    for (u, v), cost in edges.items():
-        graph[u].append((v, cost))
+def build_graph(edges=None, coordinates=None):
+    """
+    Build a graph representation from edges list.
+    Args:
+        edges: list of (origin, dest, weight) tuples
+        coordinates: dict of site coordinates (optional)
+    Returns:
+        dict: Graph representation where each node maps to a list of (neighbor, weight) tuples
+    """
+    graph = {}
+    if edges:
+        for origin, dest, weight in edges:
+            if origin not in graph:
+                graph[origin] = []
+            if dest not in graph:
+                graph[dest] = []
+            graph[origin].append((dest, weight))
+            graph[dest].append((origin, weight))  # Add reverse edge for undirected graph
     return graph
 
-# Recursive Depth-Limited Search (DLS)
-def dls(node, goal_set, graph, depth_limit, visited, path):
-    if node in goal_set:
-        return path  # Goal found
-    if depth_limit == 0:
-        return None  # Reached depth limit
-    for neighbor, _ in sorted(graph.get(node, [])):
+def dls(graph, current, goal, limit, path, visited):
+    if current == goal:
+        return path
+    if limit <= 0:
+        return None
+    visited.add(current)
+    for neighbor, _ in graph.get(current, []):
         if neighbor not in visited:
-            visited.add(neighbor)
-            result = dls(neighbor, goal_set, graph, depth_limit - 1, visited, path + [neighbor])
-            if result is not None:
+            result = dls(graph, neighbor, goal, limit - 1, path + [neighbor], visited)
+            if result:
                 return result
-            visited.remove(neighbor)  # Backtrack
-    return None  # No path found at this depth
+    visited.remove(current)
+    return None
 
-# Iterative Deepening Search Wrapper (CUS1)
-def cus1_search(graph, origin, goal):
-    max_depth = 100  # Maximum allowed depth
-    for depth in range(max_depth):
-        visited = set([origin])
-        result = dls(origin, {goal}, graph, depth, visited, [origin])
+def cus1_search(graph, start, goal, max_depth=10):
+    """
+    Custom Search 1: Iterative Deepening Depth-Limited Search (IDDFS)
+    Args:
+        graph (dict): {site_id: [(neighbor_id, weight), ...]}
+        start (str): Starting site ID
+        goal (str): Goal site ID
+        max_depth (int): Maximum depth to search
+    Returns:
+        list: Path from start to goal (list of site IDs), or [] if not found
+    """
+    for depth in range(1, max_depth + 1):
+        visited = set()
+        result = dls(graph, start, goal, depth, [start], visited)
         if result:
-            return result[-1], len(result), result
-    return None, 0, []  # No path found within depth limit
+            return result
+    return []
+
+def dfs(graph, start, goal, path=None, visited=None):
+    """
+    Depth-First Search to find a path from start to goal (CUS1).
+    Args:
+        graph: dict {site_id: [(neighbor_id, cost), ...]}
+        start: start node (int or str)
+        goal: goal node (int or str)
+        path: current path (for recursion)
+        visited: set of visited nodes
+    Returns:
+        path: list of node ids
+    """
+    if visited is None:
+        visited = set()
+    if path is None:
+        path = []
+    visited.add(start)
+    path = path + [start]
+    if start == goal:
+        return path
+    for neighbor, _ in graph.get(start, []):
+        if neighbor not in visited:
+            new_path = dfs(graph, neighbor, goal, path, visited)
+            if new_path:
+                return new_path
+    return []
 
 # Run CUS1 for each destination
 if __name__ == "__main__":

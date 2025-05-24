@@ -1,55 +1,77 @@
-import heapq, math
-from collections import defaultdict
+import heapq
 
-# Coordinates of nodes (used for Euclidean heuristic)
-positions = {1:(4,1),2:(2,2),3:(4,4),4:(6,3),5:(5,6),6:(7,5)}
+def heuristic(a, b, coordinates=None):
+    if coordinates and a in coordinates and b in coordinates:
+        lat1, lon1 = coordinates[a]['lat'], coordinates[a]['lon']
+        lat2, lon2 = coordinates[b]['lat'], coordinates[b]['lon']
+        return ((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2) ** 0.5
+    return 0
 
-# Edge list with associated costs
-edges = {
-    (2,1):4,(3,1):5,(1,3):5,(2,3):4,(3,2):5,(4,1):6,(1,4):6,(4,3):5,
-    (3,5):6,(5,3):6,(4,5):7,(5,4):8,(6,3):7,(3,6):7
-}
-
-# Build graph as adjacency list (with cost)
-def build_graph():
-    g = defaultdict(list)
-    for (u,v),cost in edges.items():
-        g[u].append((v,cost))
-    return g
-
-# Heuristic function: Euclidean distance between nodes
-def heuristic(a,b):
-    x1,y1=positions[a]; x2,y2=positions[b]
-    return math.hypot(x2-x1, y2-y1)
-
-# Greedy Best-First Search algorithm
-def gbfs(graph, start, goal):
-    pq = [(0, start, [])]  # Priority queue: (heuristic, node, path)
+def gbfs(graph, start, goal, coordinates=None):
+    """
+    Greedy Best-First Search to find a path from start to goal.
+    Args:
+        graph (dict): {site_id: [(neighbor_id, weight), ...]}
+        start (str): Starting site ID
+        goal (str): Goal site ID
+        coordinates (dict): Optional, for heuristic
+    Returns:
+        tuple: (path, total_cost) where path is a list of site IDs
+    """
+    queue = [(heuristic(start, goal, coordinates), start, [start], 0)]
     visited = set()
-    while pq:
-        _, node, path = heapq.heappop(pq)
-        if node in visited:
+    while queue:
+        _, current, path, cost_so_far = heapq.heappop(queue)
+        if current == goal:
+            return path, cost_so_far
+        if current in visited:
             continue
-        visited.add(node)
-        path = path + [node]
-        if node == goal:
-            # Calculate total cost of the found path
-            cost = sum(dict(graph[path[i]]).get(path[i+1],0) for i in range(len(path)-1))
-            return path, cost
-        for neighbor, _ in graph[node]:
+        visited.add(current)
+        for neighbor, weight in graph.get(current, []):
             if neighbor not in visited:
-                heapq.heappush(pq, (0, neighbor, path))
-    return [], 0  # No path found
+                h = heuristic(neighbor, goal, coordinates)
+                heapq.heappush(queue, (h, neighbor, path + [neighbor], cost_so_far + weight))
+    return [], float('inf')
+
+def build_graph(edges=None, coordinates=None):
+    """
+    Build a graph representation from edges list.
+    Args:
+        edges: list of (origin, dest, weight) tuples
+        coordinates: dict of site coordinates (optional)
+    Returns:
+        dict: Graph representation where each node maps to a list of (neighbor, weight) tuples
+    """
+    graph = {}
+    if edges:
+        for origin, dest, weight in edges:
+            if origin not in graph:
+                graph[origin] = []
+            if dest not in graph:
+                graph[dest] = []
+            graph[origin].append((dest, weight))
+            graph[dest].append((origin, weight))  # Add reverse edge for undirected graph
+    return graph
 
 # Run GBFS for each destination
 if __name__ == '__main__':
-    g = build_graph()
+    # Example usage
+    edges = [
+        (1, 2, 4), (1, 3, 5), (1, 4, 6),
+        (2, 3, 4), (3, 4, 5), (3, 5, 6),
+        (3, 6, 7), (4, 5, 7), (5, 4, 8)
+    ]
+    coordinates = {
+        1: (4, 1), 2: (2, 2), 3: (4, 4),
+        4: (6, 3), 5: (5, 6), 6: (7, 5)
+    }
+    graph = build_graph(edges, coordinates)
     origin = 2
     destinations = [5, 4]
     filename = "gbfs_search.py"
     method = "gbfs"
     for goal in destinations:
-        path, cost = gbfs(g, origin, goal)
+        path, cost = gbfs(graph, origin, goal, coordinates)
         print(f"{filename} {method}")
         if path:
             print(f"{goal} {len(path)}")
