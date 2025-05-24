@@ -245,14 +245,14 @@ class DataProcessor:
                 lat1, lon1 = coord1['lat'], coord1['lon']
                 lat2, lon2 = coord2['lat'], coord2['lon']
                 
-                # 使用更适合城市尺度的距离计算
-                # 1度纬度约等于111.32公里
-                # 1度经度在墨尔本（约-37.8度纬度）约等于88.7公里
+                # Use distance calculation more suitable for city scale
+                # 1 degree latitude ≈ 111.32 kilometers
+                # 1 degree longitude at Melbourne (about -37.8 degrees latitude) ≈ 88.7 kilometers
                 lat_diff = abs(lat2 - lat1) * 111.32
                 lon_diff = abs(lon2 - lon1) * 88.7
-                distance = np.sqrt(lat_diff**2 + lon_diff**2)  # 直线距离（公里）
+                distance = np.sqrt(lat_diff**2 + lon_diff**2)  # Straight line distance (km)
                 
-                # 添加1.3的系数来估计实际道路距离（考虑道路不是直线）
+                # Add a factor of 1.3 to estimate actual road distance (considering roads are not straight)
                 distance = distance * 1.3
                 
                 print(f"Distance between {site1} and {site2}: {distance:.2f} km")
@@ -265,7 +265,7 @@ class DataProcessor:
                 avg_flow = site1_data[volume_cols].mean().mean()
                 print(f"\nCalculating speed for flow: {avg_flow:.2f} vehicles/hour")
                 
-                # 速度计算
+                # Speed calculation
                 a_coef = -1.4648375
                 b_coef = 93.75
                 c_coef = -avg_flow
@@ -300,7 +300,7 @@ class DataProcessor:
                 print(f"Original flow: {avg_flow:.2f}")
                 
                 travel_time = (distance / speed) * 60 + (intersection_delay / 60)
-                # 添加时间调试输出
+                # Add time debug output
                 print(f"Travel time: {travel_time:.2f} minutes (distance: {distance:.2f} km, speed: {speed:.2f} km/h, intersection delay: {intersection_delay} s)")
                 # Add bidirectional edges
                 edges.append((site1, site2, travel_time))
