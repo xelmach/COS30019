@@ -4,9 +4,9 @@ import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QSpinBox,
-    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy
+    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy, QListWidget, QListWidgetItem, QAbstractItemView
 )
-from PyQt5.QtCore import Qt, QObject, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QThread
 from PyQt5.QtGui import QPixmap
 import folium
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -20,6 +20,18 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 from train_models import train_models
+import openrouteservice
+from route_models.dfs_search import dfs
+from route_models.bfs_search import build_graph as bfs_build_graph, bfs
+from route_models.gbfs_search import build_graph as gbfs_build_graph, gbfs
+from route_models.astar_search import build_graph as astar_build_graph, astar
+from route_models.cus1_search import build_graph as cus1_build_graph, cus1_search
+from route_models.cus2_search import graph as cus2_graph, cus2_search
+from collections import defaultdict
+import math
+import geopy.distance
+import threading
+import matplotlib.dates as mdates
 
 class TrainingProgress(QObject):
     epoch_signal = pyqtSignal(int, int)  # current, total
@@ -36,6 +48,8 @@ class ProgressCallback(tf.keras.callbacks.Callback):
 class MainWindow(QMainWindow):
     """Main window for the TBRGS application."""
     
+    prediction_result_signal = pyqtSignal(object, str)  # (QPixmap, summary_text)
+    
     def __init__(self, config, df, edges=None, coordinates=None):
         """Initialize the main window.
         
@@ -47,47 +61,25 @@ class MainWindow(QMainWindow):
         """
         super().__init__()
         self.config = config
-        
-        # Debug: Print raw DataFrame info
-        print("\nRaw DataFrame Info:")
-        print(f"DataFrame shape: {df.shape}")
-        print(f"Columns: {df.columns.tolist()}")
-        print(f"site_id dtype: {df['site_id'].dtype}")
-        print(f"Sample of site_ids: {df['site_id'].head()}")
-        
-        # Create a copy and ensure site_id is string
         self.df = df.copy()
         self.df['site_id'] = self.df['site_id'].astype(str)
         
-        # Debug: Print processed DataFrame info
-        print("\nProcessed DataFrame Info:")
-        print(f"DataFrame shape: {self.df.shape}")
-        print(f"site_id dtype: {self.df['site_id'].dtype}")
-        print(f"Sample of site_ids: {self.df['site_id'].head()}")
-        print(f"Unique site_ids: {sorted(self.df['site_id'].unique())}")
-        
-        # Debug: Check for site 2000 specifically
-        site_2000_data = self.df[self.df['site_id'] == '2000']
-        print(f"\nSite 2000 data:")
-        print(f"Number of rows: {len(site_2000_data)}")
-        if len(site_2000_data) > 0:
-            print(f"Sample row: {site_2000_data.iloc[0].to_dict()}")
-        
+        # Initialize logger
         self.logger = setup_logger()
         self.setWindowTitle("Traffic-based Route Guidance System (TBRGS)")
         
-        # Get the screen size and set window to cover entire screen
+        # Set window size
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(0, 0, screen.width(), screen.height())
         
-        # Main layout with more padding
+        # Create central widget and main layout
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
         self.layout.setContentsMargins(24, 24, 24, 24)
         self.layout.setSpacing(18)
         
-        # App title at the top
+        # Create title label
         self.title_label = QLabel("Traffic-based Route Guidance System (TBRGS)")
         self.title_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #888; margin-bottom: 12px;")
         self.title_label.setAlignment(Qt.AlignCenter)
@@ -98,88 +90,83 @@ class MainWindow(QMainWindow):
         self.tab_widget.setStyleSheet("QTabWidget::pane { border-radius: 12px; padding: 8px; }")
         self.layout.addWidget(self.tab_widget)
         
-        # Create all tabs first
-        print("Creating tabs...")
-        self.tab_widget.addTab(self._create_route_tab(), "Route Planning")
-        self.tab_widget.addTab(self._create_prediction_tab(), "Traffic Prediction")
-        self.tab_widget.addTab(self._create_settings_tab(), "Settings")
-        
         # Initialize route finder
-        print("Initializing route finder...")
-        self.route_finder = RouteFinder(self.config)
+        self.route_finder = RouteFinder()
         if edges and coordinates:
-            print("\nInitializing route finder with graph data...")
-            print(f"Number of edges: {len(edges)}")
-            print(f"Number of coordinates: {len(coordinates)}")
             self.route_finder.build_graph(edges, coordinates)
-        
-        # Initialize site dropdowns
-        print("Initializing site dropdowns...")
-        self._initialize_sites()
+            self.real_graph = self.build_real_graph(edges)
         
         # Initialize progress signal
         self.progress = TrainingProgress()
         
-        # Set dark theme as default
-        if hasattr(self, 'theme_combo'):
+        # Create tabs
+        self.tab_widget.addTab(self._create_route_tab(), "Route")
+        self.tab_widget.addTab(self._create_prediction_tab(), "Prediction")
+        self.tab_widget.addTab(self._create_settings_tab(), "Settings")
+
+        # Set dark theme as default, after theme_combo is created
+        if hasattr(self, 'theme_combo') and self.theme_combo is not None:
             self.theme_combo.setCurrentText("Dark")
             self.apply_theme("Dark")
         
-        # Show the window after everything is initialized
-        print("Showing main window...")
-        self.show()
+        # Initialize site dropdowns after all UI elements are created
+        QTimer.singleShot(100, self._delayed_initialize_sites)
         
-    def _initialize_sites(self):
-        """Initialize site dropdowns."""
+        # Show window
+        self.show()
+
+        self.prediction_result_signal.connect(self._update_prediction_result)
+
+    def _delayed_initialize_sites(self):
+        """Initialize site dropdowns with a delay to ensure proper widget creation."""
         try:
-            print("\nInitializing sites...")
-            print(f"DataFrame shape before processing: {self.df.shape}")
-            
             # Get unique sites with their descriptions
             sites = self.df[['site_id', 'Location']].drop_duplicates()
-            print(f"Unique sites found: {len(sites)}")
-            
-            # Sort sites by ID
             sites = sites.sort_values('site_id')
             
-            # Log available site IDs for debugging
-            print("\nAvailable site IDs:")
-            for _, row in sites.iterrows():
-                print(f"Site {row['site_id']}: {row['Location']}")
+            # Store the combo boxes in a list to prevent them from being garbage collected
+            self.combo_boxes = []
             
-            # Clear existing items
-            self.origin_combo.clear()
-            self.dest_combo.clear()
-            self.site_combo.clear()
+            # Initialize route tab sites
+            if hasattr(self, 'origin_combo'):
+                self.origin_combo.clear()
+                self.combo_boxes.append(self.origin_combo)
+                for _, row in sites.iterrows():
+                    display_text = f"{row['site_id']} - {row['Location']}"
+                    self.origin_combo.addItem(display_text)
+                if self.origin_combo.count() > 0:
+                    self.origin_combo.setCurrentIndex(0)
             
-            # Add items to dropdowns
-            for _, row in sites.iterrows():
-                display_text = f"{row['site_id']} - {row['Location']}"
-                self.origin_combo.addItem(display_text)
-                self.dest_combo.addItem(display_text)
-                self.site_combo.addItem(display_text)
+            if hasattr(self, 'dest_combo'):
+                self.dest_combo.clear()
+                self.combo_boxes.append(self.dest_combo)
+                for _, row in sites.iterrows():
+                    display_text = f"{row['site_id']} - {row['Location']}"
+                    self.dest_combo.addItem(display_text)
+                if self.dest_combo.count() > 0:
+                    self.dest_combo.setCurrentIndex(0)
             
-            print(f"\nAdded {self.origin_combo.count()} items to dropdowns")
+            # Initialize prediction tab sites
+            if hasattr(self, 'site_combo'):
+                self.site_combo.clear()
+                self.combo_boxes.append(self.site_combo)
+                for _, row in sites.iterrows():
+                    display_text = f"{row['site_id']} - {row['Location']}"
+                    self.site_combo.addItem(display_text)
+                if self.site_combo.count() > 0:
+                    self.site_combo.setCurrentIndex(0)
             
-            # Set default selections
-            if self.origin_combo.count() > 0:
-                self.origin_combo.setCurrentIndex(0)
-                print(f"Default origin: {self.origin_combo.currentText()}")
-            if self.dest_combo.count() > 0:
-                self.dest_combo.setCurrentIndex(0)
-                print(f"Default destination: {self.dest_combo.currentText()}")
-            if self.site_combo.count() > 0:
-                self.site_combo.setCurrentIndex(0)
-                print(f"Default site: {self.site_combo.currentText()}")
-                
-            # Set styles
-            self.origin_combo.setStyleSheet("QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #232629; padding: 6px 12px; font-size: 16px; } QComboBox::drop-down { border: none; background: transparent; } QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }")
-            self.dest_combo.setStyleSheet("QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #232629; padding: 6px 12px; font-size: 16px; } QComboBox::drop-down { border: none; background: transparent; } QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }")
+            # Populate waypoints list
+            if hasattr(self, 'waypoints_list'):
+                self.waypoints_list.clear()
+                for _, row in self.df[['site_id', 'Location']].drop_duplicates().sort_values('site_id').iterrows():
+                    item = QListWidgetItem(f"{row['site_id']} - {row['Location']}")
+                    item.setData(Qt.UserRole, str(row['site_id']))
+                    self.waypoints_list.addItem(item)
             
         except Exception as e:
-            print(f"Error initializing sites: {str(e)}")
+            self.logger.error(f"Error initializing sites: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error initializing sites: {str(e)}")
-            raise
 
     def create_controls(self):
         self.controls_widget = QWidget()
@@ -359,12 +346,27 @@ class MainWindow(QMainWindow):
         controls_panel_layout.setSpacing(0)
         controls_panel_layout.addStretch(1)
 
-        # Card-like controls area
-        controls_card = QFrame()
-        controls_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 18px; padding: 32px 32px 24px 32px; }")
-        controls_card_layout = QVBoxLayout(controls_card)
-        controls_card_layout.setSpacing(18)
-        controls_card_layout.setContentsMargins(0, 0, 0, 0)
+        # Model selection dropdown
+        model_card = QFrame()
+        model_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 4px 24px 16px 24px; margin-top: 2px; }")
+        model_layout = QVBoxLayout(model_card)
+        model_layout.setContentsMargins(0, 0, 0, 0)
+        model_layout.setSpacing(12)
+        model_label = QLabel("Model:")
+        model_label.setStyleSheet("font-weight: 600; font-size: 17px; color: #f0f0f0; margin: 0 0 1px 0; padding-top: 1px; padding-bottom: 1px;")
+        model_label.setAlignment(Qt.AlignCenter)
+        model_label.setWordWrap(True)
+        self.model_combo = QComboBox()
+        self.model_combo.setMinimumHeight(36)
+        self.model_combo.setStyleSheet(
+            "QComboBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
+            "QComboBox::drop-down { border: none; background: transparent; }"
+            "QComboBox QAbstractItemView { background: #232629; color: #f0f0f0; border-radius: 8px; }"
+        )
+        self.model_combo.addItems(["LSTM", "GRU", "CNN"])
+        model_layout.addWidget(model_label)
+        model_layout.addWidget(self.model_combo)
+        controls_panel_layout.addWidget(model_card, alignment=Qt.AlignTop)
 
         # Site selection
         site_card = QFrame()
@@ -385,9 +387,9 @@ class MainWindow(QMainWindow):
         )
         site_layout.addWidget(site_label)
         site_layout.addWidget(self.site_combo)
-        controls_card_layout.addWidget(site_card)
+        controls_panel_layout.addWidget(site_card, alignment=Qt.AlignTop)
 
-        # Prediction horizon
+        # Prediction horizonye
         horizon_card = QFrame()
         horizon_card.setStyleSheet("QFrame { background: #2d3238; border-radius: 16px; padding: 12px 12px 24px 12px; }")
         horizon_layout = QVBoxLayout(horizon_card)
@@ -396,15 +398,15 @@ class MainWindow(QMainWindow):
         horizon_label = QLabel("Prediction Horizon (hours):")
         horizon_label.setStyleSheet("font-weight: 600; font-size: 16px; color: #f0f0f0; margin: 0 0 8px 0; padding-top: 1px; padding-bottom: 1px;")
         self.horizon_spin = QSpinBox()
-        self.horizon_spin.setRange(1, 24)
+        self.horizon_spin.setRange(1, 3)  # Only allow 1, 2, or 3 hours
         self.horizon_spin.setValue(1)
-        self.horizon_spin.setMinimumHeight(36)
+        self.horizon_spin.setMinimumHeight(38)
         self.horizon_spin.setStyleSheet(
             "QSpinBox { background: #232629; color: #f0f0f0; border-radius: 8px; border: 1.5px solid #888; padding: 6px 12px; font-size: 16px; }"
         )
         horizon_layout.addWidget(horizon_label)
         horizon_layout.addWidget(self.horizon_spin)
-        controls_card_layout.addWidget(horizon_card)
+        controls_panel_layout.addWidget(horizon_card, alignment=Qt.AlignTop)
 
         # Predict button (in controls card)
         self.predict_btn = QPushButton("Predict Traffic")
@@ -412,7 +414,7 @@ class MainWindow(QMainWindow):
         self.predict_btn.setMinimumWidth(0)
         self.predict_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.predict_btn.clicked.connect(self._predict_traffic)
-        controls_card_layout.addWidget(self.predict_btn)
+        controls_panel_layout.addWidget(self.predict_btn)
 
         # Cancel button (in controls card, hidden by default)
         self.cancel_btn = QPushButton("Cancel")
@@ -425,10 +427,9 @@ class MainWindow(QMainWindow):
         )
         self.cancel_btn.clicked.connect(self._cancel_training)
         self.cancel_btn.setVisible(False)
-        controls_card_layout.addWidget(self.cancel_btn)
+        controls_panel_layout.addWidget(self.cancel_btn)
 
-        controls_card_layout.addStretch(1)
-        controls_panel_layout.addWidget(controls_card, alignment=Qt.AlignTop)
+        controls_panel_layout.addStretch(1)
         controls_panel_layout.addStretch(2)
 
         # Right: Graph and summary
@@ -785,159 +786,170 @@ class MainWindow(QMainWindow):
                 self.prediction_summary.setStyleSheet("QTextEdit { background: #f5f6fa; color: #232629; border-radius: 8px; font-size: 15px; padding: 12px; margin: 8px; border: none; }")
 
     def _find_routes(self):
-        """Find routes between selected sites."""
         try:
-            # Get selected sites
             origin_text = self.origin_combo.currentText()
             dest_text = self.dest_combo.currentText()
-            
-            print(f"\nFinding routes...")
-            print(f"Selected origin text: {origin_text}")
-            print(f"Selected destination text: {dest_text}")
-            
-            # Extract site IDs from the display text
             origin_id = origin_text.split(' - ')[0]
             dest_id = dest_text.split(' - ')[0]
-            
-            print(f"\nDebug - Searching for sites:")
-            print(f"Origin ID: {origin_id} (type: {type(origin_id)})")
-            print(f"Destination ID: {dest_id} (type: {type(dest_id)})")
-            print(f"DataFrame site_id type: {self.df['site_id'].dtype}")
-            print(f"Unique site IDs in DataFrame: {sorted(self.df['site_id'].unique())}")
-            
-            # Debug: Check exact values in DataFrame
-            print("\nChecking DataFrame values:")
-            print(f"DataFrame site_id values: {self.df['site_id'].value_counts().head()}")
-            
-            # Get site data with explicit string conversion
             origin_data = self.df[self.df['site_id'].astype(str) == str(origin_id)]
             dest_data = self.df[self.df['site_id'].astype(str) == str(dest_id)]
-            
-            print(f"\nDebug - Found data:")
-            print(f"Origin data rows: {len(origin_data)}")
-            print(f"Destination data rows: {len(dest_data)}")
-            
-            if len(origin_data) == 0:
-                error_msg = f"No data found for origin site {origin_id}"
-                print(error_msg)
-                print(f"Available site IDs: {sorted(self.df['site_id'].unique())}")
-                QMessageBox.warning(self, "Error", error_msg)
+            if len(origin_data) == 0 or len(dest_data) == 0:
+                QMessageBox.warning(self, "Error", "No data found for origin or destination site.")
                 self.route_summary.setText("")
                 return
-                
-            if len(dest_data) == 0:
-                error_msg = f"No data found for destination site {dest_id}"
-                print(error_msg)
-                print(f"Available site IDs: {sorted(self.df['site_id'].unique())}")
-                QMessageBox.warning(self, "Error", error_msg)
-                self.route_summary.setText("")
-                return
-            
-            # Get coordinates
             origin_coords = (origin_data.iloc[0]['NB_LATITUDE'], origin_data.iloc[0]['NB_LONGITUDE'])
             dest_coords = (dest_data.iloc[0]['NB_LATITUDE'], dest_data.iloc[0]['NB_LONGITUDE'])
-            
-            print(f"\nDebug - Coordinates:")
-            print(f"Origin: {origin_coords}")
-            print(f"Destination: {dest_coords}")
-            
-            # Show progress dialog
             progress = QProgressDialog("Calculating routes...", "Cancel", 0, 100, self)
             progress.setWindowTitle("Route Calculation")
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(0)
             progress.setValue(0)
             progress.show()
-            
-            # Update progress
-            progress.setLabelText("Initializing route finder...")
+            progress.setLabelText("Analyzing traffic flow...")
             progress.setValue(10)
             QApplication.processEvents()
-            
-            # Find routes
-            progress.setLabelText("Finding shortest paths...")
-            progress.setValue(30)
-            QApplication.processEvents()
-            
-            routes = self.route_finder.find_top_k_routes(origin_id, dest_id, k=3)
-            
-            if not routes:
-                progress.close()
-                error_msg = "No routes found between the selected sites"
-                print(error_msg)
-                QMessageBox.warning(self, "Error", error_msg)
+            time_columns = [col for col in self.df.columns if (':' in str(col)) or (str(col).startswith('V') and str(col)[1:].isdigit() and len(str(col)) == 3)]
+            edge_flows = {}
+            for u, edges in self.real_graph.items():
+                for v, _ in edges:
+                    u_data = self.df[self.df['site_id'].astype(str) == str(u)][time_columns].mean().mean()
+                    v_data = self.df[self.df['site_id'].astype(str) == str(v)][time_columns].mean().mean()
+                    edge_flows[(str(u), str(v))] = (u_data + v_data) / 2
+            max_flow = max(edge_flows.values()) if edge_flows else 1
+            edge_times = {edge: (flow / max_flow) * 30 for edge, flow in edge_flows.items()}
+            # Call the new find_top_k_assignment_routes method from route_finder.py
+            routes = self.route_finder.find_top_k_assignment_routes(origin_id, dest_id, k=3)
+            fastest_route = routes[0] if len(routes) > 0 else None
+            alternative_route = routes[1] if len(routes) > 1 else None
+            if not fastest_route:
+                QMessageBox.warning(self, "Error", "No route found.")
                 self.route_summary.setText("")
                 return
-            
-            # Update progress
-            progress.setLabelText("Processing routes...")
-            progress.setValue(60)
-            QApplication.processEvents()
-            
-            # Clear existing routes
-            self.map_view.setHtml("")  # Clear the map
-            
-            # Create new map
+            # Visualization: red first (thinner), then blue (thicker) on top
+            colors = ['#FF4136', '#0074D9']  # red, blue
+            weights = [4, 8]
             m = folium.Map(location=origin_coords, zoom_start=12)
-            
-            # Add markers for origin and destination
+            draw_order = [0, 1] if alternative_route else [0]
+            for idx in draw_order:
+                if idx == 0:
+                    draw_route, travel_time = fastest_route
+                    color = colors[1]  # blue
+                    weight = weights[1]
+                else:
+                    draw_route, travel_time = alternative_route
+                    color = colors[0]  # red
+                    weight = weights[0]
+                road_route_coords = []
+                for j in range(len(draw_route) - 1):
+                    node_a = draw_route[j]
+                    node_b = draw_route[j+1]
+                    node_a_data = self.df[self.df['site_id'].astype(str) == str(node_a)]
+                    node_b_data = self.df[self.df['site_id'].astype(str) == str(node_b)]
+                    if len(node_a_data) == 0 or len(node_b_data) == 0:
+                        continue
+                    coords_a = (node_a_data.iloc[0]['NB_LATITUDE'], node_a_data.iloc[0]['NB_LONGITUDE'])
+                    coords_b = (node_b_data.iloc[0]['NB_LATITUDE'], node_b_data.iloc[0]['NB_LONGITUDE'])
+                    segment = self.get_road_route(coords_a, coords_b)
+                    if segment:
+                        if road_route_coords and road_route_coords[-1] == segment[0]:
+                            road_route_coords.extend(segment[1:])
+                        else:
+                            road_route_coords.extend(segment)
+                if road_route_coords:
+                    folium.PolyLine(
+                        road_route_coords,
+                        color=color,
+                        weight=weight,
+                        opacity=1.0,
+                        popup=f"Route {idx+1} - Travel Time: {travel_time:.1f} minutes"
+                    ).add_to(m)
+                for site_id in draw_route:
+                    site_data = self.df[self.df['site_id'].astype(str) == str(site_id)]
+                    if len(site_data) == 0:
+                        continue
+                    coords = (site_data.iloc[0]['NB_LATITUDE'], site_data.iloc[0]['NB_LONGITUDE'])
+                    area = site_data.iloc[0]['Location']
+                    folium.CircleMarker(
+                        location=coords,
+                        radius=5,
+                        color=color,
+                        fill=True,
+                        fill_color=color,
+                        fill_opacity=0.8,
+                        tooltip=f"{site_id}: {area}"
+                    ).add_to(m)
             folium.Marker(
                 origin_coords,
+                popup=f"Origin: {origin_id}",
                 tooltip=f"Origin: {origin_id}",
-                popup=f"Location: {origin_data.iloc[0]['Location']}",
-                icon=folium.Icon(color='gray')
+                icon=folium.Icon(color='green', icon='home')
             ).add_to(m)
-            
             folium.Marker(
                 dest_coords,
+                popup=f"Destination: {dest_id}",
                 tooltip=f"Destination: {dest_id}",
-                popup=f"Location: {dest_data.iloc[0]['Location']}",
-                icon=folium.Icon(color='gray')
+                icon=folium.Icon(color='red', icon='flag')
             ).add_to(m)
-            
-            # Update progress
-            progress.setLabelText("Drawing routes on map...")
-            progress.setValue(80)
-            QApplication.processEvents()
-            
-            # Add routes to map
-            colors = ['blue', 'red', 'green']
-            for i, (route, cost) in enumerate(routes):
-                route_coords = self.route_finder.get_route_coords(route)
-                if route_coords:
-                    folium.PolyLine(
-                        route_coords,
-                        color=colors[i % len(colors)],
-                        weight=5,
-                        opacity=0.8,
-                        tooltip=f"Route {i+1} - Cost: {cost:.2f} minutes"
-                    ).add_to(m)
-            
-            # Save and display map
+            all_site_ids = set(self.df['site_id'].astype(str).unique())
+            route_site_ids = set()
+            for route, _ in [fastest_route, alternative_route] if alternative_route else [fastest_route]:
+                route_site_ids.update(route)
+            origin_site_id = str(origin_id)
+            dest_site_id = str(dest_id)
+            for site_id in all_site_ids:
+                if (site_id in route_site_ids) or (site_id == origin_site_id) or (site_id == dest_site_id):
+                    continue
+                site_data = self.df[self.df['site_id'].astype(str) == str(site_id)]
+                if len(site_data) == 0:
+                    continue
+                coords = (site_data.iloc[0]['NB_LATITUDE'], site_data.iloc[0]['NB_LONGITUDE'])
+                area = site_data.iloc[0]['Location']
+                folium.CircleMarker(
+                    location=coords,
+                    radius=4,
+                    color='#888',
+                    fill=True,
+                    fill_color='#888',
+                    fill_opacity=0.7,
+                    tooltip=f"{site_id}: {area}"
+                ).add_to(m)
             data = io.BytesIO()
             m.save(data, close_file=False)
             self.map_view.setHtml(data.getvalue().decode())
-            
-            # Complete progress
             progress.setLabelText("Route calculation complete!")
             progress.setValue(100)
             QApplication.processEvents()
             progress.close()
-            
-            # Show route summary in the QTextEdit
-            summary = "<b>Route Summary:</b><br><br>"
-            for i, (route, cost) in enumerate(routes):
-                summary += f"<b>Route {i+1}:</b><br>"
-                summary += f"Path: {' → '.join(route)}<br>"
-                summary += f"Travel Time: <b>{cost:.2f} minutes</b><br><br>"
-            self.route_summary.setHtml(summary)
-            
+            summary = "<b>Route Summary (K-shortest, blue on top):</b><br><br>"
+            if alternative_route:
+                summary += f"<b>Fastest Route 🔵</b><br> (Travel Time: {fastest_route[1]:.1f} minutes):<br>"
+                summary += " → ".join(fastest_route[0]) + "<br><br>"
+                summary += f"<b>Alternative Route 🔴</b><br> (Travel Time: {alternative_route[1]:.1f} minutes):<br>"
+                summary += " → ".join(alternative_route[0]) + "<br><br>"
+            else:
+                summary += f"<b>Fastest Route 🔵</b><br> (Travel Time: {fastest_route[1]:.1f} minutes):<br>"
+                summary += " → ".join(fastest_route[0]) + "<br><br>"
+            self.route_summary.setText(summary)
         except Exception as e:
             error_msg = f"Error finding routes: {str(e)}"
             print(error_msg)
             QMessageBox.warning(self, "Error", error_msg)
             self.route_summary.setText("")
-            raise
+            return
+
+    def get_road_route(self, origin_coords, dest_coords):
+        """Get a road-following route between two coordinates using OpenRouteService."""
+        try:
+            ORS_API_KEY = '5b3ce3597851110001cf62482f7615690eae478583e68e57c8f1143f'
+            client = openrouteservice.Client(key=ORS_API_KEY)
+            coords = ((origin_coords[1], origin_coords[0]), (dest_coords[1], dest_coords[0]))  # (lon, lat)
+            route = client.directions(coords, profile='driving-car', format='geojson')
+            road_coords = route['features'][0]['geometry']['coordinates']
+            road_coords_latlon = [(lat, lon) for lon, lat in road_coords]
+            return road_coords_latlon
+        except Exception as e:
+            print(f"Error fetching road route: {e}")
+            return None
 
     def _predict_traffic(self):
         site = self.site_combo.currentText()
@@ -946,153 +958,232 @@ class MainWindow(QMainWindow):
             return
         try:
             site_id = site.split(' - ')[0]
-            epochs = 50
-            self.prediction_label.setText(f"<b>Training model...</b><br>Epoch 0/{epochs}")
+            horizon_hours = self.horizon_spin.value()
+            if horizon_hours > 3:
+                horizon_hours = 3
+                self.horizon_spin.setValue(3)
+            steps = horizon_hours * 4  # 15-min intervals
+
+            # Update UI: show 'Model is running...'
+            self.prediction_label.setText("<b>Model is running...</b>")
             self.prediction_label.setStyleSheet(
                 "QLabel { background: #232629; color: #fff; border: none; border-radius: 16px; font-size: 16px; padding: 0; }"
             )
-            self.training_progress_bar.setVisible(True)
-            self.training_progress_bar.setValue(0)
+            self.training_progress_bar.setVisible(False)
             self.predict_btn.setVisible(False)
-            self.cancel_btn.setVisible(True)
+            self.cancel_btn.setVisible(False)
             self._cancel_requested = False
 
-            def update_progress(current, total):
-                self.prediction_label.setText(f"<b>Training model...</b><br>Epoch {current}/{total}")
-                percent = int((current / total) * 100)
-                self.training_progress_bar.setValue(percent)
-                QApplication.processEvents()
-
-            progress = TrainingProgress()
-            progress.epoch_signal.connect(update_progress)
-
-            def on_training_done():
-                self.training_progress_bar.setVisible(False)
-                self.cancel_btn.setVisible(False)
-                self.predict_btn.setVisible(True)
-                self.predict_traffic_after_training(site_id)
-
-            progress.training_done.connect(on_training_done)
-
-            import threading
-            def train_and_predict():
-                if not self._cancel_requested:
-                    train_models(site_id=int(site_id), progress_callback=ProgressCallback(epochs, progress), epochs_override=epochs)
-                progress.training_done.emit()
-
-            self._training_thread = threading.Thread(target=train_and_predict)
-            self._training_thread.start()
+            # Run prediction in a separate thread
+            threading.Thread(target=self.predict_traffic_after_training, args=(site_id, steps)).start()
         except Exception as e:
             self.logger.error(f"Error predicting traffic: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error predicting traffic: {str(e)}")
+            self.training_progress_bar.setVisible(False)
+            self.cancel_btn.setVisible(False)
+            self.predict_btn.setVisible(True)
 
     def _cancel_training(self):
         self._cancel_requested = True
-        self.cancel_btn.setVisible(False)
-        self.predict_btn.setVisible(True)
-        self.training_progress_bar.setVisible(False)
-        self.prediction_label.clear()
-        self.prediction_label.setText('<div style="color:#888;font-size:18px;line-height:1.6;">\n<span style="font-size:48px;">📈</span><br>Click "Predict Traffic" to generate a prediction.</div>')
-        self.prediction_label.setStyleSheet(
-            "QLabel { background: #232629; color: #b0b0b0; border: none; border-radius: 16px; font-size: 18px; padding: 0; }"
-        )
 
-    def predict_traffic_after_training(self, site_id):
+    def build_real_graph(self, edges):
+        """Build a graph representation from the edges list.
+        
+        Args:
+            edges (list): List of (origin, dest, weight) tuples.
+            
+        Returns:
+            dict: Graph representation where each node maps to a list of (neighbor, weight) tuples.
+        """
+        graph = defaultdict(list)
+        for origin, dest, weight in edges:
+            graph[str(origin)].append((str(dest), weight))
+        return dict(graph)
+
+    def offset_coords(self, coords, offset_meters):
+        # Approximate conversion: 1 deg latitude ~ 111,320 meters
+        offset_deg = offset_meters / 111320.0
+        offset_coords = []
+        for i in range(len(coords)):
+            if i == 0 and len(coords) > 1:
+                dx = coords[i+1][1] - coords[i][1]
+                dy = coords[i+1][0] - coords[i][0]
+            elif i > 0:
+                dx = coords[i][1] - coords[i-1][1]
+                dy = coords[i][0] - coords[i-1][0]
+            else:
+                dx, dy = 0, 0
+            length = math.hypot(dx, dy)
+            if length == 0:
+                ox, oy = 0, 0
+            else:
+                ox = -dy / length * offset_deg
+                oy = dx / length * offset_deg
+            offset_coords.append((coords[i][0] + ox, coords[i][1] + oy))
+        return offset_coords
+
+    def find_route_with_waypoints(self, waypoints):
+        """Find a route that visits all waypoints in order using the current graph."""
+        full_route = []
+        total_cost = 0
+        for i in range(len(waypoints) - 1):
+            segment, cost = self.route_finder.find_top_k_routes(waypoints[i], waypoints[i+1], k=1)[0]
+            if i > 0:
+                segment = segment[1:]  # Avoid duplicate nodes
+            full_route.extend(segment)
+            total_cost += cost
+        return full_route, total_cost
+
+    # Example usage (for demonstration):
+    def demo_waypoint_route(self):
+        # Hardcoded waypoints for demonstration (replace with UI selection as needed)
+        waypoints = ['4057', '4032', '4051']
+        route, cost = self.find_route_with_waypoints(waypoints)
+        print(f"Waypoint route: {' -> '.join(route)} (Total cost: {cost:.2f} min)")
+        # You can add code here to visualize this route on the map, etc.
+
+    def predict_traffic_after_training(self, site_id, steps):
+        """
+        Use the selected pre-trained model to predict and update the GUI.
+        Handles all file checks, data prep, model training, and plotting.
+        """
         try:
-            # Convert site_id to string for consistent comparison
-            site_id = str(site_id)
-            
-            # Get data for the selected site - only get the most recent data
-            site_data = self.df[self.df['site_id'].astype(str) == site_id].tail(96).copy()
-            
-            print(f"\nDebug - Prediction for site {site_id}:")
-            print(f"Site data rows found: {len(site_data)}")
-            
-            if len(site_data) == 0:
-                QMessageBox.warning(self, "Error", f"No data found for site {site_id}")
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import io
+            from PyQt5.QtGui import QPixmap
+            import numpy as np
+            import pandas as pd
+            import os
+            import matplotlib.dates as mdates
+
+            model_name = self.model_combo.currentText()
+            window_size = 96  # Match the model's training window size
+
+            # 1. Ensure raw data exists
+            raw_path = f"data/scats_{site_id}.csv"
+            if not os.path.exists(raw_path):
+                # Try to generate it from the Excel file
+                try:
+                    from generate_normalized_data import export_site_csvs
+                    export_site_csvs()  # This will create all missing raw files
+                except Exception as e:
+                    self.prediction_result_signal.emit(None, f"Error: Could not generate raw data for site {site_id}: {str(e)}")
+                    return
+                if not os.path.exists(raw_path):
+                    self.prediction_result_signal.emit(None, f"Error: Raw data for site {site_id} not found after export.")
+                    return
+
+            # 2. Ensure normalized data exists
+            normalized_path = f"data/scats_{site_id}_normalized.csv"
+            if not os.path.exists(normalized_path):
+                try:
+                    from generate_normalized_data import normalize_scats_file
+                    normalize_scats_file(raw_path, normalized_path)
+                except Exception as e:
+                    self.prediction_result_signal.emit(None, f"Error: Could not normalize data for site {site_id}: {str(e)}")
+                    return
+
+            # 3. Prepare input for prediction
+            input_path = normalized_path
+            df = pd.read_csv(input_path)
+            data = df['normalized_volume'].values
+            last_window = data[-window_size:].reshape(1, window_size, 1)
+
+            # 4. Ensure model exists, train if needed
+            if model_name == "LSTM":
+                from lstm_model import train_lstm_model
+                model_path = f"models/lstm_site_{site_id}.h5"
+            elif model_name == "GRU":
+                from gru_model import train_gru_model
+                model_path = f"models/gru_site_{site_id}.h5"
+            elif model_name == "CNN":
+                from cnn_model import train_cnn_model
+                model_path = f"models/cnn_site_{site_id}.h5"
+            else:
+                self.prediction_result_signal.emit(None, f"Unknown model: {model_name}")
                 return
-            
-            # Get the time columns (15-minute intervals)
-            time_columns = [col for col in site_data.columns if (':' in str(col)) or (str(col).startswith('V') and str(col)[1:].isdigit() and len(str(col)) == 3)]
-            
-            if not time_columns:
-                QMessageBox.warning(self, "Error", "No time-based columns found in the data")
-                return
-            
-            # Convert time columns to numeric values and normalize - do it all at once
-            data = site_data[time_columns].values.flatten()
-            data = pd.to_numeric(data, errors='coerce')
-            
-            # Remove any NaN values
-            data = data[~np.isnan(data)]
-            
-            if len(data) < 96:
-                QMessageBox.warning(self, "Error", "Not enough data points for prediction")
-                return
-            
-            # Normalize the data
-            scaler = MinMaxScaler()
-            normalized_data = scaler.fit_transform(data.reshape(-1, 1))
-            
-            # Prepare for multi-step prediction
-            horizon_steps = self.horizon_spin.value() * 4  # 4 steps per hour (15-min intervals)
-            predictions = []
-            current_input = normalized_data[-96:].reshape(1, 96, 1)
-            
-            # Load and use the GRU model
-            model_path = f"models/gru_site_{site_id}.h5"
+
             if not os.path.exists(model_path):
-                QMessageBox.warning(
-                    self,
-                    "Model Not Found",
-                    f"Prediction model for site {site_id} not found. Please train the model first."
-                )
-                return
-            
-            model = tf.keras.models.load_model(model_path, compile=False)
-            
-            # Recursively predict for the horizon
-            for _ in range(horizon_steps):
-                pred = model.predict(current_input, verbose=0)
+                # Show a message while training
+                self.prediction_result_signal.emit(None, f"Training {model_name} model for site {site_id}... Please wait.")
+                if model_name == "LSTM":
+                    train_lstm_model(input_path, output_path=None, window_size=window_size, epochs=20)
+                elif model_name == "GRU":
+                    train_gru_model(input_path, output_path=None, window_size=window_size, epochs=20)
+                elif model_name == "CNN":
+                    train_cnn_model(input_path, output_path=None, window_size=window_size, epochs=20)
+
+            # 5. Load model safely (avoid 'mse' error)
+            from tensorflow.keras.models import load_model
+            model = load_model(model_path, compile=False)
+            model.compile(optimizer='adam', loss='mse')
+
+            # 6. Predict sequence
+            predictions = []
+            current_input = last_window.copy()
+            for _ in range(steps):
+                pred = model.predict(current_input)
                 predictions.append(pred[0, 0])
-                # Update input: remove first, append new prediction
                 current_input = np.roll(current_input, -1, axis=1)
                 current_input[0, -1, 0] = pred[0, 0]
-            
-            # Inverse transform predictions
-            predictions = np.array(predictions).reshape(-1, 1)
-            predictions = scaler.inverse_transform(predictions)
-            
-            # Plot the prediction
-            plt.figure(figsize=(12, 6))
-            plt.plot(range(len(predictions)), predictions, 'b-', linewidth=2, label='Predicted Traffic')
-            plt.grid(True, linestyle='--', alpha=0.7)
-            plt.title(f'Traffic Prediction for Site {site_id}', fontsize=14, pad=15)
-            plt.xlabel('Time Steps (15-minute intervals)', fontsize=12)
-            plt.ylabel('Traffic Volume', fontsize=12)
-            plt.legend(fontsize=10)
+            predictions = np.array(predictions)
+
+            # 7. Inverse transform and get time
+            from sklearn.preprocessing import MinMaxScaler
+            df_original = pd.read_csv(raw_path)
+            scaler = MinMaxScaler()
+            scaler.fit(df_original[['Volume']])
+            predictions_inv = scaler.inverse_transform(np.array(predictions).reshape(-1, 1)).flatten()
+            context_steps = window_size  # Show last window_size context points
+
+            # Use the actual time column if available, else generate a time range
+            if 'Time' in df_original.columns:
+                time_col = pd.to_datetime(df_original['Time'])
+            else:
+                # fallback: generate a time range starting at midnight
+                time_col = pd.date_range("00:00", periods=len(df_original), freq="15T")
+
+            context_times = time_col.iloc[-context_steps:]
+            last_time = context_times.iloc[-1]
+            future_times = pd.date_range(last_time + pd.Timedelta(minutes=15), periods=steps, freq='15T')
+
+            # Ensure all time data is datetime
+            context_times = pd.to_datetime(context_times)
+            future_times = pd.to_datetime(future_times)
+
+            plt.figure(figsize=(12, 5))
+            plt.plot(context_times, context_data_inv[-context_steps:], label='True Flow', color='blue')
+            plt.plot(future_times, predictions_inv, label=f'{model_name} Prediction', color='red', linestyle='--')
+            plt.xlabel('Time of Day')
+            plt.ylabel('Vehicles per Hour')
+            plt.title(f'{model_name} Prediction for Site {site_id}')
+            plt.legend()
+            ax = plt.gca()
+            ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))  # Minor ticks every 15 min
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))     # Major ticks/labels every hour
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            ax.tick_params(axis='x', which='minor', labelbottom=False)
+            plt.setp(ax.get_xticklabels(), rotation=30, ha='right')
+            plt.gcf().autofmt_xdate()
             plt.tight_layout()
-            temp_file = 'temp_prediction.png'
-            plt.savefig(temp_file, dpi=300, bbox_inches='tight')
+            plt.subplots_adjust(left=0.15, right=0.98, top=0.92, bottom=0.18)
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
             plt.close()
-            
-            # Display the plot in the QLabel with proper scaling
-            pixmap = QPixmap(temp_file)
-            scaled_pixmap = pixmap.scaled(self.prediction_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.prediction_label.setPixmap(scaled_pixmap)
-            
-            # Show prediction summary
-            avg_prediction = np.mean(predictions)
-            max_prediction = np.max(predictions)
-            min_prediction = np.min(predictions)
-            summary_html = (
-                f"<b>Traffic prediction for site {site_id}:</b><br><br>"
-                f"<b>Average predicted volume:</b> {avg_prediction:.0f}<br>"
-                f"<b>Maximum predicted volume:</b> {max_prediction:.0f}<br>"
-                f"<b>Minimum predicted volume:</b> {min_prediction:.0f}"
-            )
-            self.prediction_summary.setHtml(summary_html)
-            
+            buf.seek(0)
+            qimg = QPixmap()
+            qimg.loadFromData(buf.getvalue())
+            summary_text = f"<b>{model_name} Prediction complete for {steps} steps ({steps//4} hours)</b>"
+            self.prediction_result_signal.emit(qimg, summary_text)
         except Exception as e:
-            self.logger.error(f"Error predicting traffic: {str(e)}")
-            QMessageBox.warning(self, "Error", f"Error predicting traffic: {str(e)}") 
+            self.prediction_result_signal.emit(None, f"Error in prediction: {str(e)}")
+
+    def _update_prediction_result(self, qimg, summary_text):
+        if qimg is not None:
+            self.prediction_label.setPixmap(qimg)
+        else:
+            self.prediction_label.setText(summary_text)
+        self.prediction_summary.setText(summary_text)
+        self.predict_btn.setVisible(True)
