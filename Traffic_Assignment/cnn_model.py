@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 import os
+from tensorflow.keras import Input
 
 class CNNModel:
     def __init__(self, window_size=12):
@@ -23,7 +24,8 @@ class CNNModel:
 
     def build_model(self, input_shape):
         model = Sequential()
-        model.add(Conv1D(filters=64, kernel_size=2, activation='relu', input_shape=input_shape))
+        model.add(Input(shape=(self.window_size, 1)))
+        model.add(Conv1D(filters=64, kernel_size=3, activation='relu'))
         model.add(MaxPooling1D(pool_size=2))
         model.add(Flatten())
         model.add(Dense(50, activation='relu'))
@@ -72,16 +74,16 @@ def train_cnn_model(input_path="data/scats_0970_normalized.csv", output_path="ou
             hour = start_hour + (i // 2)
             minute = '00' if i % 2 == 0 else '30'
             x_labels.append(f"{hour}:{minute}")
-    plt.figure(figsize=(12, 5))
-    plt.plot(y_test, label='Actual')
-    plt.plot(y_pred, label='Predicted')
-    plt.xlabel('Time (Hour)')
-    plt.ylabel('Number of Cars')
-    plt.title('CNN Prediction vs Actual')
-    plt.xticks(ticks=np.arange(0, len(x_labels), max(1, len(x_labels)//10)), labels=[x_labels[i] for i in np.arange(0, len(x_labels), max(1, len(x_labels)//10))], rotation=45)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    # plt.figure(figsize=(12, 5))
+    # plt.plot(y_test, label='Actual')
+    # plt.plot(y_pred, label='Predicted')
+    # plt.xlabel('Time (Hour)')
+    # plt.ylabel('Number of Cars')
+    # plt.title('CNN Prediction vs Actual')
+    # plt.xticks(ticks=np.arange(0, len(x_labels), max(1, len(x_labels)//10)), labels=[x_labels[i] for i in np.arange(0, len(x_labels), max(1, len(x_labels)//10))], rotation=45)
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()
 
     # Save the trained model
     site_id = input_path.split('_')[1].split('.')[0]  # Extract site_id from filename

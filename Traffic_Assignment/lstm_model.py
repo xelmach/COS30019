@@ -7,6 +7,9 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import os
+from tensorflow.keras import Input
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 
 class LSTMModel(BaseModel):
     def __init__(self, config):
@@ -17,12 +20,12 @@ class LSTMModel(BaseModel):
         os.makedirs("plots", exist_ok=True)
 
     def build_model(self, input_shape):
-        inputs = tf.keras.layers.Input(shape=input_shape)
-        x = tf.keras.layers.LSTM(64, return_sequences=True)(inputs)
-        x = tf.keras.layers.LSTM(32)(x)
-        outputs = tf.keras.layers.Dense(1)(x)
+        model = Sequential()
+        model.add(Input(shape=(input_shape[0], 1)))
+        model.add(LSTM(64, return_sequences=True))
+        model.add(LSTM(32))
+        model.add(Dense(1))
         
-        model = tf.keras.Model(inputs=inputs, outputs=outputs)
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])
         self.model = model
 
@@ -228,6 +231,6 @@ def train_lstm_model(input_path, output_path, window_size=12, epochs=50):
     np.save(output_path, y_pred)
     
     # Plot results
-    model.plot_predictions(X_test, y_test)
+    # model.plot_predictions(X_test, y_test)
     
     return y_test, y_pred, rmse 

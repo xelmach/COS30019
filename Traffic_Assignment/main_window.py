@@ -4,7 +4,7 @@ import sys
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QComboBox, QSpinBox,
-    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy, QListWidget, QListWidgetItem, QAbstractItemView, QScrollArea, QDateEdit, QTimeEdit
+    QTabWidget, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem, QSplitter, QProgressDialog, QApplication, QProgressBar, QFrame, QTextEdit, QSizePolicy, QListWidget, QListWidgetItem, QAbstractItemView, QScrollArea, QDateEdit, QTimeEdit, QSpacerItem, QRadioButton, QButtonGroup, QCheckBox
 )
 from PyQt5.QtCore import Qt, QObject, pyqtSignal, QTimer, QThread, QDate, QTime
 from PyQt5.QtGui import QPixmap
@@ -99,7 +99,8 @@ class MainWindow(QMainWindow):
         self.progress = TrainingProgress()
         
         # Create tabs
-        self.tab_widget.addTab(self._create_route_tab(), "Route Planning")
+        self.tab_widget.addTab(self._create_route_tab(), "Routing")
+        self.tab_widget.addTab(self._create_prediction_tab(), "Prediction")
         self.tab_widget.addTab(self._create_settings_tab(), "Settings")
 
         # Set dark theme as default, after theme_combo is created
@@ -109,6 +110,39 @@ class MainWindow(QMainWindow):
         
         # Initialize site dropdowns after all UI elements are created
         QTimer.singleShot(100, self._delayed_initialize_sites)
+        
+        # Adjust map height and size policy
+        self.map_view.setMinimumHeight(400)  # Reduce map height
+        self.map_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Add a persistent route summary card box below the map/input
+        self.route_summary_row = QWidget()
+        self.route_summary_row_layout = QHBoxLayout(self.route_summary_row)
+        self.route_summary_row.setStyleSheet(
+            "background: #23272b; border-radius: 16px; margin: 0; padding: 0; min-height: 60px;"
+        )
+        self.route_summary_row.setMinimumHeight(60)
+        self.route_summary_row.setMaximumHeight(80)
+        self.route_summary_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.route_summary_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.route_summary_row_layout.setSpacing(0)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        self.layout.addWidget(self.route_summary_row)
+        # Add default message
+        self.route_summary_default = QLabel("<div style='color:#bbb; font-size:20px; text-align:center;'>Route summary will appear here</div>")
+        self.route_summary_default.setTextFormat(Qt.RichText)
+        self.route_summary_default.setAlignment(Qt.AlignCenter)
+        self.route_summary_row_layout.addWidget(self.route_summary_default)
+        
+        # Hide route summary row on Prediction tab
+        def handle_tab_change(idx):
+            tab_text = self.tab_widget.tabText(idx)
+            if tab_text == "Prediction":
+                self.route_summary_row.hide()
+            else:
+                self.route_summary_row.show()
+        self.tab_widget.currentChanged.connect(handle_tab_change)
+        handle_tab_change(self.tab_widget.currentIndex())
         
         # Show window
         self.show()
@@ -153,6 +187,34 @@ class MainWindow(QMainWindow):
                     item = QListWidgetItem(f"{row['site_id']} - {row['Location']}")
                     item.setData(Qt.UserRole, str(row['site_id']))
                     self.waypoints_list.addItem(item)
+                
+            # After site_combo is created and populated:
+            progress_label = QLabel()
+            progress_label.setStyleSheet("color:#7ecfff; font-size:15px;")
+            self.route_summary_row_layout.addWidget(progress_label)
+
+            def update_date_range_for_site():
+                import os
+                import pandas as pd
+                site_id = self.origin_combo.currentText().split(' - ')[0]
+                csv_path = f"data/scats_{site_id}.csv"
+                if os.path.exists(csv_path):
+                    df_site = pd.read_csv(csv_path)
+                    n_days = len(df_site) // 96
+                    min_date = pd.to_datetime("2006-10-01")
+                    max_date = min_date + pd.Timedelta(days=n_days-1)
+                    if hasattr(self, 'date_input'):
+                        self.date_input.setMinimumDate(min_date)
+                        self.date_input.setMaximumDate(max_date)
+                        # If current date is out of range, reset to min_date and show a message
+                        current_date = pd.Timestamp(self.date_input.date().toPyDate())
+                        if not (min_date <= current_date <= max_date):
+                            self.date_input.setDate(min_date)
+                            progress_label.setText(f"Valid dates for this site: {min_date.date()} to {max_date.date()}")
+                        else:
+                            progress_label.setText("")
+            self.origin_combo.currentIndexChanged.connect(update_date_range_for_site)
+            update_date_range_for_site()
                 
         except Exception as e:
             self.logger.error(f"Error initializing sites: {str(e)}")
@@ -406,59 +468,32 @@ class MainWindow(QMainWindow):
                     border-top-right-radius: 8px;
                     border-bottom-right-radius: 8px;
                 }
-                QSpinBox::up-arrow, QSpinBox::down-arrow {
-                    width: 18px;
-                    height: 18px;
-                }
-                QSpinBox::up-button, QSpinBox::down-button {
-                    min-width: 20px;
-                    min-height: 20px;
-                    width: 20px;
-                    height: 20px;
-                    margin: 1px;
-                    padding: 0px;
-                }
-                QSpinBox::up-arrow {
-                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-up.svg);
-                }
-                QSpinBox::down-arrow {
-                    image: url(/Users/yaxzyra/Documents/University/Introduction_to_AI/Traffic_Assignment/resources/arrow-down.svg);
-                }
-                QPushButton {
-                    background-color: #888;
-                    color: #fff;
-                    font-size: 17px;
-                    font-weight: 600;
-                    border-radius: 10px;
-                    padding: 10px 0;
-                    margin-top: 8px;
-                    border: none;
-                    transition: background 0.2s;
-                }
-                QPushButton:hover {
-                    background-color: #aaa;
-                }
-                QPushButton:pressed {
-                    background-color: #555;
-                }
                 QTabBar::tab {
-                    background: #31363b;
+                    background: #232b33;
                     color: #f0f0f0;
-                    border-radius: 8px;
-                    padding: 10px 22px;
-                    font-size: 16px;
-                    margin: 2px;
+                    border-radius: 12px;
+                    padding: 12px 28px;
+                    font-size: 18px;
+                    margin: 2px 8px 0 0;
                     min-width: 120px;
                     margin-bottom: 20px;
+                    border: 2px solid transparent;
+                    font-weight: 700;
                 }
                 QTabBar::tab:selected {
-                    background: #888;
-                    color: #232629;
+                    background: #1677ff;
+                    color: #fff;
+                    border: 2px solid #1677ff;
+                }
+                QTabBar::tab:hover {
+                    background: #409eff;
+                    color: #fff;
                 }
                 QTabWidget::pane {
                     border-radius: 12px;
                     border: 1.5px solid #888;
                     padding: 8px;
+                    background: #181c20;
                 }
                 QProgressBar {
                     border: 1.5px solid #888;
@@ -773,29 +808,31 @@ class MainWindow(QMainWindow):
                          self.df[self.df['site_id'].astype(str) == str(origin_id)].iloc[0]['NB_LONGITUDE']]
             m = folium.Map(location=map_center, zoom_start=13)
             route_styles = [
-                {"color": "#FF4136", "width": 2},    # 1st: red
-                {"color": "#e67e22", "width": 4},    # 2nd: orange
+                {"color": "#FF4136", "width": 6},    # 1st: red
+                {"color": "#e67e22", "width": 6},    # 2nd: orange
                 {"color": "#27ae60", "width": 6},    # 3rd: green
-                {"color": "#8e44ad", "width": 8},    # 4th: purple
-                {"color": "#0074D9", "width": 10},   # 5th: blue
+                {"color": "#8e44ad", "width": 6},    # 4th: purple
+                {"color": "#0074D9", "width": 6},   # 5th: blue
             ]
-            for idx in range(len(route_infos)-1, -1, -1):  # Draw slowest on top, fastest on bottom
-                path, travel_time, distance = route_infos[idx]
-                style = route_styles[idx % len(route_styles)]
+            # Sort route_infos by travel_time (ascending) to determine thickness
+            sorted_route_infos = sorted(enumerate(route_infos), key=lambda x: x[1][1])
+            weights = [10, 8, 6, 4, 2]
+            # Draw all routes in the order of fastest to slowest for thickness
+            for order, (orig_idx, (path, travel_time, distance)) in enumerate(sorted_route_infos):
+                style = route_styles[orig_idx % len(route_styles)]
                 full_coords = []
                 for j in range(len(path) - 1):
                     a = self.df[self.df['site_id'].astype(str) == str(path[j])].iloc[0]
                     b = self.df[self.df['site_id'].astype(str) == str(path[j+1])].iloc[0]
                     lat1, lon1 = a['NB_LATITUDE'], a['NB_LONGITUDE']
                     lat2, lon2 = b['NB_LATITUDE'], b['NB_LONGITUDE']
-                    # Use ORS for real road-following polyline
                     seg_coords = self.get_road_polyline((lat1, lon1), (lat2, lon2))
                     if not full_coords:
                         full_coords.extend(seg_coords)
                     else:
-                        # Avoid duplicating the first point of the segment
                         full_coords.extend(seg_coords[1:])
-                folium.PolyLine(full_coords, color=style["color"], weight=style["width"], opacity=0.85).add_to(m)
+                weight = weights[order] if order < len(weights) else 2
+                folium.PolyLine(full_coords, color=style["color"], weight=weight, opacity=0.85).add_to(m)
                 if full_coords:
                     folium.Marker(
                         full_coords[0],
@@ -806,6 +843,20 @@ class MainWindow(QMainWindow):
                         full_coords[-1],
                         tooltip="Destination",
                         icon=folium.Icon(color='red', icon='stop', prefix='fa')
+                    ).add_to(m)
+                # Add small circle markers for each site in the path
+                for site_id in path:
+                    site_row = self.df[self.df['site_id'].astype(str) == str(site_id)].iloc[0]
+                    lat, lon = site_row['NB_LATITUDE'], site_row['NB_LONGITUDE']
+                    site_name = site_row['Location'] if 'Location' in site_row else site_id
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=6,
+                        color='#fff',
+                        fill=True,
+                        fill_color=style["color"],
+                        fill_opacity=0.9,
+                        tooltip=folium.Tooltip(f"Site {site_id}: {site_name}")
                     ).add_to(m)
             data = io.BytesIO()
             m.save(data, close_file=False)
@@ -818,34 +869,67 @@ class MainWindow(QMainWindow):
             header = QLabel(f"<b>Routes from {origin_id} to {dest_id}</b>")
             header.setStyleSheet("font-size: 22px; margin-bottom: 18px; color: #fff;")
             self.results_layout.addWidget(header)
-            route_icons = [
-                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#FF4136;margin-left:12px;vertical-align:middle;"></span>',
-                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#e67e22;margin-left:12px;vertical-align:middle;"></span>',
-                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#27ae60;margin-left:12px;vertical-align:middle;"></span>',
-                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#8e44ad;margin-left:12px;vertical-align:middle;"></span>',
-                '<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:#0074D9;margin-left:12px;vertical-align:middle;"></span>'
-            ]
             for idx, (path, travel_time, distance) in enumerate(route_infos):
-                icon = route_icons[idx % len(route_icons)]
-                card_html = f"""
-                <div style='background:#23272b; border-radius:18px; margin-bottom:22px; padding:28px 32px; color:#fff; font-size:22px;'>
-                  <b style='font-size:26px; color:#fff;'>
-                    Route {idx+1} <span style='vertical-align:middle;' title='Route color'>{icon}</span>
-                  </b><br>
-                  <span style='font-size:21px; color:#bbb;'><b>Time:</b> {travel_time:.2f} min</span><br>
-                  <span style='font-size:21px; color:#bbb;'><b>Distance:</b> {distance:.2f} km</span><br>
-                  <span style='font-size:18px; color:#888;'><b>Path:</b> {' → '.join(str(s) for s in path)}</span>
-                </div>
-                """
-                card = QLabel(card_html)
-                card.setTextFormat(Qt.RichText)
-                card.setWordWrap(True)
-                card.setStyleSheet("font-size: 22px; margin-bottom: 18px; background: transparent;")
-                self.results_layout.addWidget(card)
+                route_label = QLabel(f"<span style='font-size:17px; color:#fff;'><b>Route {idx+1}</b> | <span style='color:#7ecfff;'><b>Time:</b> {travel_time:.2f} min</span> | <span style='color:#f7c873;'><b>Distance:</b> {distance:.2f} km</span></span>")
+                route_label.setTextFormat(Qt.RichText)
+                route_label.setAlignment(Qt.AlignCenter)
+                route_label.setStyleSheet("margin-bottom: 8px; padding: 0;")
+                route_label.setFixedWidth(320)
+                self.results_layout.addWidget(route_label)
             self.results_layout.addStretch(1)
             progress.close()
+            # --- Horizontal Route Summary Row ---
+            # Remove default message if present
+            if hasattr(self, 'route_summary_default') and self.route_summary_default is not None:
+                self.route_summary_row_layout.removeWidget(self.route_summary_default)
+                self.route_summary_default.setParent(None)
+                self.route_summary_default = None
+            for i in reversed(range(self.route_summary_row_layout.count())):
+                widget = self.route_summary_row_layout.itemAt(i).widget()
+                if widget:
+                    widget.setParent(None)
+            self.route_summary_row_layout.setSpacing(0)
+            self.route_summary_row_layout.setContentsMargins(0, 0, 0, 0)
+            emoji_list = ['🟥', '🟧', '🟩', '🟪', '🟦']
+            num_routes = len(route_infos)
+            for idx, (path, travel_time, distance) in enumerate(route_infos):
+                emoji = emoji_list[idx % len(emoji_list)]
+                summary_label = QLabel(f"""
+                    <div style='text-align:center; min-width:60px; max-width:70px;'>
+                        <div style='font-size:24px; margin-bottom:0;'>{emoji}</div>
+                        <div style='font-size:13px; color:#fff; font-weight:bold; margin:0;'>Route {idx+1}</div>
+                        <div style='font-size:13px; color:#7ecfff; margin:0;'><b>Time:</b> {travel_time:.2f} min</div>
+                        <div style='font-size:13px; color:#f7c873; margin:0;'><b>Distance:</b> {distance:.2f} km</div>
+                    </div>
+                """)
+                summary_label.setTextFormat(Qt.RichText)
+                summary_label.setAlignment(Qt.AlignCenter)
+                if idx < num_routes - 1:
+                    summary_label.setStyleSheet("margin:0 2px 0 0;padding:0;")
+                else:
+                    summary_label.setStyleSheet("margin:0;padding:0;")
+                self.route_summary_row_layout.addWidget(summary_label)
+            self.route_summary_row_layout.setContentsMargins(0, 0, 0, 0)
+            self.route_summary_row.setContentsMargins(0, 0, 0, 0)
+            self.route_summary_row.setStyleSheet("background: #23272b; border-radius: 16px; margin: 0; padding: 0; min-height: 60px;")
+
+            # Improve the Search button style
+            if hasattr(self, 'search_btn'):
+                self.search_btn.setStyleSheet(
+                    "background: #1677ff; color: #fff; font-size: 20px; font-weight: bold; border-radius: 8px; padding: 14px 0; margin-bottom: 18px;"
+                )
+                self.search_btn.setMinimumHeight(48)
         except Exception as e:
             progress.close()
+            # Clear any cards and show default message
+            for i in reversed(range(self.route_summary_row_layout.count())):
+                widget = self.route_summary_row_layout.itemAt(i).widget()
+                if widget:
+                    widget.setParent(None)
+            self.route_summary_default = QLabel("<div style='color:#bbb; font-size:20px; text-align:center;'>Route summary will appear here</div>")
+            self.route_summary_default.setTextFormat(Qt.RichText)
+            self.route_summary_default.setAlignment(Qt.AlignCenter)
+            self.route_summary_row_layout.addWidget(self.route_summary_default)
             error_msg = f"Error finding routes: {str(e)}"
             print(error_msg)
             QMessageBox.warning(self, "Error", error_msg)
@@ -1055,6 +1139,7 @@ class MainWindow(QMainWindow):
             scaler.fit(df_original[['Volume']])
             predictions_inv = scaler.inverse_transform(np.array(predictions).reshape(-1, 1)).flatten()
             context_steps = window_size  # Show last window_size context points
+            context_data_inv = scaler.inverse_transform(df_original[['Volume']].values).flatten()
 
             # Use the actual time column if available, else generate a time range
             if 'Time' in df_original.columns:
@@ -1103,5 +1188,291 @@ class MainWindow(QMainWindow):
             self.prediction_label.setPixmap(qimg)
         else:
             self.prediction_label.setText(summary_text)
-        self.prediction_summary.setText(summary_text)
         self.predict_btn.setVisible(True)
+
+    def _create_prediction_tab(self):
+        main_widget = QWidget()
+        main_layout = QHBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Sidebar (styled like Route Planning)
+        sidebar = QFrame()
+        sidebar.setStyleSheet("""
+            QFrame { background: #181c20; border-radius: 16px; }
+            QLabel#title { font-size: 24px; font-weight: bold; color: #fff; margin-bottom: 18px; }
+            QPushButton { background: #1677ff; color: #fff; font-size: 17px; font-weight: bold; border-radius: 8px; padding: 12px 0; }
+            QPushButton:hover { background: #409eff; }
+            QLineEdit, QComboBox, QDateEdit, QTimeEdit { font-size: 14px; border-radius: 8px; padding: 6px 8px; border: 1.5px solid #23272b; background: #23272b; color: #fff; min-height: 28px; max-height: 32px; }
+        """)
+        sidebar.setFixedWidth(390)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(28, 28, 28, 28)
+        sidebar_layout.setSpacing(18)
+
+        # Title
+        title = QLabel("Traffic Prediction")
+        title.setObjectName("title")
+        sidebar_layout.addWidget(title)
+
+        # Site dropdown
+        site_label = QLabel("Site:")
+        site_label.setStyleSheet("color:#fff;")
+        sidebar_layout.addWidget(site_label)
+        site_combo = QComboBox()
+        site_options = [f"{row['site_id']} - {row['Location']}" for _, row in self.df[['site_id', 'Location']].drop_duplicates().sort_values('site_id').iterrows()]
+        site_combo.addItems(site_options)
+        sidebar_layout.addWidget(site_combo)
+
+        # Date input
+        date_label = QLabel("Date:")
+        date_label.setStyleSheet("color:#fff;")
+        sidebar_layout.addWidget(date_label)
+        date_input = QDateEdit()
+        date_input.setDisplayFormat("yyyy-MM-dd")
+        date_input.setCalendarPopup(True)
+        date_input.setDate(QDate.currentDate())
+        sidebar_layout.addWidget(date_input)
+        progress_label = QLabel()
+        progress_label.setStyleSheet("color:#7ecfff; font-size:15px;")
+        sidebar_layout.addWidget(progress_label)
+        # --- Restrict date_input to valid range for selected site ---
+        def update_date_range_for_site():
+            import os
+            import pandas as pd
+            site_id = site_combo.currentText().split(' - ')[0]
+            csv_path = f"data/scats_{site_id}.csv"
+            if os.path.exists(csv_path):
+                df_site = pd.read_csv(csv_path)
+                n_days = len(df_site) // 96
+                min_date = pd.to_datetime("2006-10-01")
+                max_date = min_date + pd.Timedelta(days=n_days-1)
+                date_input.setMinimumDate(min_date)
+                date_input.setMaximumDate(max_date)
+                # If current date is out of range, reset to min_date and show a message
+                current_date = pd.Timestamp(date_input.date().toPyDate())
+                if not (min_date <= current_date <= max_date):
+                    date_input.setDate(min_date)
+                    progress_label.setText(f"Valid dates for this site: {min_date.date()} to {max_date.date()}")
+                else:
+                    progress_label.setText("")
+            else:
+                # If file doesn't exist, allow any date
+                date_input.setMinimumDate(QDate(2000, 1, 1))
+                date_input.setMaximumDate(QDate(2100, 1, 1))
+                progress_label.setText(f"No data file for site {site_id}")
+        site_combo.currentIndexChanged.connect(update_date_range_for_site)
+        update_date_range_for_site()
+
+        # Time input
+        time_label = QLabel("Time:")
+        time_label.setStyleSheet("color:#fff;")
+        sidebar_layout.addWidget(time_label)
+        time_input = QTimeEdit()
+        time_input.setDisplayFormat("HH:mm")
+        time_input.setTime(QTime.currentTime())
+        sidebar_layout.addWidget(time_input)
+
+        # Model selection (checkboxes)
+        model_label = QLabel("Models:")
+        model_label.setStyleSheet("color:#fff;")
+        sidebar_layout.addWidget(model_label)
+        self.lstm_checkbox = QCheckBox("LSTM")
+        self.gru_checkbox = QCheckBox("GRU")
+        self.cnn_checkbox = QCheckBox("CNN")
+        sidebar_layout.addWidget(self.lstm_checkbox)
+        sidebar_layout.addWidget(self.gru_checkbox)
+        sidebar_layout.addWidget(self.cnn_checkbox)
+        # None selected by default
+        self.lstm_checkbox.setChecked(False)
+        self.gru_checkbox.setChecked(False)
+        self.cnn_checkbox.setChecked(False)
+
+        # Train Models button and progress label
+        train_btn = QPushButton("Train Models")
+        sidebar_layout.addWidget(train_btn)
+        cancel_btn = QPushButton("Cancel Training")
+        cancel_btn.setStyleSheet("QPushButton { background: #e74c3c; color: #fff; font-size: 17px; font-weight: bold; border-radius: 8px; padding: 12px 0; margin-top: 4px; margin-bottom: 8px; } QPushButton:hover { background: #ff6f61; }")
+        sidebar_layout.addWidget(cancel_btn)
+        cancel_btn.setVisible(False)  # Hide by default
+        self.progress_label = QLabel()
+        self.progress_label.setStyleSheet("color:#7ecfff; font-size:15px;")
+        sidebar_layout.addWidget(self.progress_label)
+        self._cancel_training_requested = False
+
+        # Main area for graph and summary (like Routing tab)
+        graph_widget = QWidget()
+        graph_layout = QVBoxLayout(graph_widget)
+        graph_layout.setContentsMargins(24, 24, 24, 24)
+        graph_layout.setSpacing(0)
+        self.graph_label = QLabel()
+        self.graph_label.setAlignment(Qt.AlignCenter)
+        graph_layout.addWidget(self.graph_label)
+        # Add a plain metrics label below the graph
+        self.metrics_label = QLabel()
+        self.metrics_label.setAlignment(Qt.AlignCenter)
+        self.metrics_label.setStyleSheet("color:#bbb; font-size:16px; margin-top:18px;")
+        graph_layout.addWidget(self.metrics_label)
+        main_layout.addWidget(sidebar)
+        main_layout.addWidget(graph_widget, 1)
+
+        def compute_metrics(y_true, y_pred):
+            import numpy as np
+            from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+            mae = mean_absolute_error(y_true, y_pred)
+            rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+            r2 = r2_score(y_true, y_pred)
+            return mae, rmse, r2
+
+        # --- Hide graph and metrics by default ---
+        self.graph_label.clear()
+        self.metrics_label.clear()
+
+        def clear_graph_and_metrics():
+            self.graph_label.clear()
+            self.metrics_label.clear()
+        site_combo.currentIndexChanged.connect(clear_graph_and_metrics)
+        date_input.dateChanged.connect(clear_graph_and_metrics)
+        time_input.timeChanged.connect(clear_graph_and_metrics)
+        self.lstm_checkbox.toggled.connect(clear_graph_and_metrics)
+        self.gru_checkbox.toggled.connect(clear_graph_and_metrics)
+        self.cnn_checkbox.toggled.connect(clear_graph_and_metrics)
+
+        # Only show graph after button is pressed
+        def show_daily_traffic():
+            self.progress_label.setText("")
+            self.graph_label.clear()
+            self.metrics_label.clear()
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import io
+            from PyQt5.QtGui import QPixmap
+            import numpy as np
+            import pandas as pd
+            import matplotlib.dates as mdates
+            import os
+            site_text = site_combo.currentText()
+            site_id = site_text.split(' - ')[0]
+            date_str = date_input.date().toString("yyyy-MM-dd")
+            time_str = time_input.time().toString("HH:mm")
+            csv_path = f"data/scats_{site_id}.csv"
+            if not os.path.exists(csv_path):
+                self.graph_label.setText(f"<span style='color:#f55;'>No data file for site {site_id}</span>")
+                self.metrics_label.setText("")
+                return
+            df_site = pd.read_csv(csv_path)
+            # Assume 15-min intervals, 96 rows per day, starting from 2006-10-01
+            start_date = pd.to_datetime("2006-10-01")
+            n_days = len(df_site) // 96
+            min_date = start_date
+            max_date = min_date + pd.Timedelta(days=n_days-1)
+            selected_date = pd.to_datetime(date_str)
+            day_idx = (selected_date - start_date).days
+            start_row = day_idx * 96
+            end_row = start_row + 96
+            # --- New: Start from selected time ---
+            selected_time = pd.to_datetime(time_str)
+            start_hour = selected_time.hour
+            start_minute = selected_time.minute
+            # Each 15-min interval is one row
+            time_offset = start_hour * 4 + start_minute // 15
+            plot_start = start_row + time_offset
+            plot_end = end_row
+            if plot_start >= end_row:
+                self.graph_label.setText(f"<span style='color:#f55;'>Selected time is out of range for this day.</span>")
+                self.metrics_label.setText("")
+                return
+            day_volumes = df_site['Volume'].iloc[plot_start:plot_end].values
+            times = pd.date_range(selected_date + pd.Timedelta(minutes=time_offset*15), periods=len(day_volumes), freq='15min')
+            # Prepare predictions for selected models
+            selected_models = []
+            if self.lstm_checkbox.isChecked():
+                selected_models.append("LSTM")
+            if self.gru_checkbox.isChecked():
+                selected_models.append("GRU")
+            if self.cnn_checkbox.isChecked():
+                selected_models.append("CNN")
+            if not selected_models:
+                self.graph_label.setText("<span style='color:#f55;'>Please select at least one model.</span>")
+                self.metrics_label.setText("")
+                return
+            plt.figure(figsize=(12, 5))
+            plt.plot(times, day_volumes, label='True Flow', color='black', linewidth=2)
+            model_styles = {
+                'LSTM': {'color': 'green', 'linestyle': '--', 'label': 'LSTM Prediction'},
+                'GRU': {'color': 'orange', 'linestyle': '--', 'label': 'GRU Prediction'},
+                'CNN': {'color': 'blue', 'linestyle': '--', 'label': 'CNN Prediction'},
+            }
+            metrics_html = ""
+            for selected_model in selected_models:
+                model_file = f"{selected_model.lower()}_site_{site_id}.h5"
+                if os.path.exists(model_file):
+                    from tensorflow.keras.models import load_model
+                    from sklearn.preprocessing import MinMaxScaler
+                    norm_path = f"data/scats_{site_id}_normalized.csv"
+                    if not os.path.exists(norm_path):
+                        self.graph_label.setText(f"<span style='color:#f55;'>No normalized data for site {site_id}</span>")
+                        self.metrics_label.setText("")
+                        return
+                    norm_df = pd.read_csv(norm_path)
+                    data = norm_df['normalized_volume'].values
+                    window_size = 96
+                    if len(data) < (day_idx+1)*96:
+                        self.graph_label.setText(f"<span style='color:#f55;'>Not enough data for prediction.</span>")
+                        self.metrics_label.setText("")
+                        return
+                    X = []
+                    for i in range(plot_start, plot_end):
+                        if i-window_size < 0:
+                            X.append(np.zeros((window_size, 1)))
+                        else:
+                            X.append(data[i-window_size:i].reshape(window_size, 1))
+                    X = np.array(X)
+                    model_obj = load_model(model_file, compile=False)
+                    preds = model_obj.predict(X, verbose=0).flatten()
+                    raw_path = f"data/scats_{site_id}.csv"
+                    scaler = MinMaxScaler()
+                    scaler.fit(pd.read_csv(raw_path)[['Volume']])
+                    preds_inv = scaler.inverse_transform(preds.reshape(-1, 1)).flatten()
+                    plt.plot(times, preds_inv, color=model_styles[selected_model]['color'], linestyle=model_styles[selected_model]['linestyle'], label=model_styles[selected_model]['label'])
+                    # Compute metrics
+                    mae, rmse, r2 = compute_metrics(day_volumes, preds_inv)
+                    metrics_html += f"<div style='display:inline-block; min-width:120px; margin-right:18px;'><b style='color:{model_styles[selected_model]['color']}'>{selected_model}</b><br>MAE: <b>{mae:.2f}</b><br>RMSE: <b>{rmse:.2f}</b><br>R²: <b>{r2:.3f}</b></div>"
+                else:
+                    # Show a message prompting the user to train the model
+                    metrics_html += f"<div style='display:inline-block; min-width:120px; margin-right:18px; color:#f55;'><b>{selected_model} not trained</b><br>Please train this model for predictions.</div>"
+            plt.xlabel('Time of Day')
+            plt.ylabel('Vehicles per Hour')
+            plt.title(f'Model Comparison at Site {site_id} – {date_str}')
+            plt.legend(loc='upper right', fontsize=12, frameon=True, facecolor='#fff', edgecolor='#888')
+            plt.grid(True, linestyle='--', alpha=0.5)
+            ax = plt.gca()
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            plt.xticks(fontsize=12)
+            plt.yticks(fontsize=12)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            plt.tight_layout()
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight')
+            plt.close()
+            buf.seek(0)
+            qimg = QPixmap()
+            qimg.loadFromData(buf.getvalue())
+            self.graph_label.clear()  # Remove placeholder label
+            self.graph_label.setPixmap(qimg)
+            self.metrics_label.setText(metrics_html)
+            self.graph_label.setToolTip('')
+        train_btn.clicked.connect(show_daily_traffic)
+        cancel_btn.clicked.connect(self.cancel_training)
+
+        show_daily_traffic()
+        return main_widget
+
+    def cancel_training(self):
+        self._cancel_training_requested = True
+        self.progress_label.setText("Cancelling training...")
+        # Hide the cancel button after cancelling
+        if hasattr(self, 'cancel_btn'):
+            self.cancel_btn.setVisible(False)

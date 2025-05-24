@@ -107,9 +107,9 @@ def train_models(site_id=None, progress_callback=None, epochs_override=None):
             logger.info(f"LSTM model metrics: {lstm_metrics}")
             
             # Plot LSTM predictions
-            print("\nPlotting LSTM predictions...")
-            lstm_rmse = lstm_model.plot_predictions(X_test, y_test, title=f"LSTM Traffic Flow Prediction - Site {sid}")
-            lstm_model.plot_training_history()
+            # print("\nPlotting LSTM predictions...")
+            # lstm_rmse = lstm_model.plot_predictions(X_test, y_test, title=f"LSTM Traffic Flow Prediction - Site {sid}")
+            # lstm_model.plot_training_history()
             
             # Save LSTM model
             model_path = f"models/lstm_site_{sid}.h5"
@@ -127,9 +127,9 @@ def train_models(site_id=None, progress_callback=None, epochs_override=None):
             logger.info(f"GRU model metrics: {gru_metrics}")
             
             # Plot GRU predictions
-            print("\nPlotting GRU predictions...")
-            gru_rmse = gru_model.plot_predictions(X_test, y_test, title=f"GRU Traffic Flow Prediction - Site {sid}")
-            gru_model.plot_training_history()
+            # print("\nPlotting GRU predictions...")
+            # gru_rmse = gru_model.plot_predictions(X_test, y_test, title=f"GRU Traffic Flow Prediction - Site {sid}")
+            # gru_model.plot_training_history()
             
             # Save GRU model
             model_path = f"models/gru_site_{sid}.h5"
@@ -139,8 +139,8 @@ def train_models(site_id=None, progress_callback=None, epochs_override=None):
             
             # Print comparison of models
             print(f"\nModel Comparison for Site {sid}:")
-            print(f"LSTM RMSE: {lstm_rmse:.4f}")
-            print(f"GRU RMSE: {gru_rmse:.4f}")
+            print(f"LSTM RMSE: {lstm_metrics}")
+            print(f"GRU RMSE: {gru_metrics}")
             
         logger.info("Model training completed")
         print("Models directory contents:", os.listdir("models"))

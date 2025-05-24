@@ -11,6 +11,7 @@ import pandas as pd
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import GRU, Dense
 from sklearn.model_selection import train_test_split
+from tensorflow.keras import Input
 
 class GRUModel(BaseModel):
     def __init__(self, config):
@@ -184,10 +185,10 @@ def train_gru_model(input_path, output_path, window_size=12, epochs=50):
     X = np.array(X).reshape((-1, window_size, 1))
     y = np.array(y)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    model = Sequential([
-        GRU(64, input_shape=(window_size, 1)),
-        Dense(1)
-    ])
+    model = Sequential()
+    model.add(Input(shape=(window_size, 1)))
+    model.add(GRU(64))
+    model.add(Dense(1))
     model.compile(optimizer='adam', loss='mse')
     model.fit(X_train, y_train, epochs=epochs, batch_size=32, validation_split=0.1, verbose=0)
     # Save model
@@ -195,4 +196,7 @@ def train_gru_model(input_path, output_path, window_size=12, epochs=50):
     model.save(f"models/gru_site_{site_id}.h5")
     y_pred = model.predict(X_test)
     np.save(output_path, y_pred)
+    # Plot results
+    # model.plot_predictions(X_test, y_test)
+    
     return y_test, y_pred, np.sqrt(np.mean((y_test - y_pred.flatten()) ** 2)) 
