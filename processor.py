@@ -44,6 +44,15 @@ class DataProcessor:
         df = pd.read_excel(input_file, sheet_name='Data', header=1, usecols=usecols)
         df.columns = [str(col).strip() for col in df.columns]
         
+        # Special coordinate handling for site 4266
+        if 'NB_LATITUDE' in df.columns and 'NB_LONGITUDE' in df.columns:
+            mask = df['SCATS Number'] == 4266
+            if mask.any():
+                print("\nProcessing special coordinates for site 4266...")
+                df.loc[mask, 'NB_LATITUDE'] = -37.824995
+                df.loc[mask, 'NB_LONGITUDE'] = 145.043525
+                print("Site 4266 coordinates have been updated")
+        
         # Add coordinate offset
         # North 140 meters ≈ 0.00126 degrees latitude
         # East 115 meters (originally 120m east, then 5m west) ≈ 0.00129 degrees longitude (at Melbourne's latitude)

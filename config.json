@@ -1,0 +1,28 @@
+{
+  "ml": {
+    "sequence_length": 96,
+    "batch_size": 32,
+    "epochs": 50,
+    "learning_rate": 0.001,
+    "input_file": "Scats Data October 2006.xls"
+  },
+  "data": {
+    "traffic_data_path": "Traffic_Count_Locations_with_LONG_LAT.csv",
+    "scats_data_path": "SCATSSiteListingSpreadsheet_VicRoads.xls"
+  },
+  "gui": {
+    "window_size": "1200x800",
+    "map_center": [-37.8136, 144.9631],
+    "map_zoom": 12
+  },
+  "model": {
+    "lstm": {
+      "units": 64,
+      "dropout": 0.2
+    },
+    "gru": {
+      "units": 64,
+      "dropout": 0.2
+    }
+  }
+} 
