@@ -32,6 +32,8 @@ import math
 import geopy.distance
 import threading
 import matplotlib.dates as mdates
+import logging
+import re
 
 class TrainingProgress(QObject):
     epoch_signal = pyqtSignal(int, int)  # current, total
@@ -49,6 +51,9 @@ class MainWindow(QMainWindow):
     """Main window for the TBRGS application."""
     
     prediction_result_signal = pyqtSignal(object, str)  # (QPixmap, summary_text)
+    training_status_signal = pyqtSignal(str)
+    training_progress_signal = pyqtSignal(str)
+    training_done_signal = pyqtSignal()
     
     def __init__(self, config, df, edges=None, coordinates=None):
         """Initialize the main window.
@@ -67,6 +72,14 @@ class MainWindow(QMainWindow):
         # Initialize logger
         self.logger = setup_logger()
         self.setWindowTitle("Traffic-based Route Guidance System (TBRGS)")
+        
+        # Initialize flags and state variables
+        self._cancel_training_requested = False
+        self._cancel_requested = False
+        
+        # Initialize route finder and graph
+        self.route_finder = RouteFinder()
+        self.real_graph = self.build_real_graph(edges) if edges else {}
         
         # Set window size
         screen = QApplication.primaryScreen().geometry()
@@ -90,31 +103,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.setStyleSheet("QTabWidget::pane { border-radius: 12px; padding: 8px; }")
         self.layout.addWidget(self.tab_widget)
         
-        # Initialize route finder
-        self.route_finder = RouteFinder()
-        # Build the real graph from the provided edges (undirected)
-        self.real_graph = self.build_real_graph(edges) if edges else {}
-        
-        # Initialize progress signal
-        self.progress = TrainingProgress()
-        
-        # Create tabs
-        self.tab_widget.addTab(self._create_route_tab(), "Routing")
-        self.tab_widget.addTab(self._create_prediction_tab(), "Prediction")
-        self.tab_widget.addTab(self._create_settings_tab(), "Settings")
-
-        # Set dark theme as default, after theme_combo is created
-        if hasattr(self, 'theme_combo') and self.theme_combo is not None:
-            self.theme_combo.setCurrentText("Dark")
-            self.apply_theme("Dark")
-        
-        # Initialize site dropdowns after all UI elements are created
-        QTimer.singleShot(100, self._delayed_initialize_sites)
-        
-        # Adjust map height and size policy
-        self.map_view.setMinimumHeight(400)  # Reduce map height
-        self.map_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # Add a persistent route summary card box below the map/input
+        # Initialize route summary row
         self.route_summary_row = QWidget()
         self.route_summary_row_layout = QHBoxLayout(self.route_summary_row)
         self.route_summary_row.setStyleSheet(
@@ -125,14 +114,59 @@ class MainWindow(QMainWindow):
         self.route_summary_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.route_summary_row_layout.setContentsMargins(0, 0, 0, 0)
         self.route_summary_row_layout.setSpacing(0)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
         self.layout.addWidget(self.route_summary_row)
-        # Add default message
+        
+        # Add default message to route summary
         self.route_summary_default = QLabel("<div style='color:#bbb; font-size:20px; text-align:center;'>Route summary will appear here</div>")
         self.route_summary_default.setTextFormat(Qt.RichText)
         self.route_summary_default.setAlignment(Qt.AlignCenter)
         self.route_summary_row_layout.addWidget(self.route_summary_default)
+        
+        # Initialize prediction-related widgets
+        self.prediction_label = QLabel()
+        self.prediction_label.setAlignment(Qt.AlignCenter)
+        self.prediction_label.setScaledContents(True)
+        self.prediction_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        self.training_progress_bar = QProgressBar()
+        self.training_progress_bar.setVisible(False)
+        
+        self.predict_btn = QPushButton("Predict Traffic")
+        self.predict_btn.setVisible(False)
+        
+        self.cancel_btn = QPushButton("Cancel Training")
+        self.cancel_btn.setVisible(False)
+        
+        self.horizon_spin = QSpinBox()
+        self.horizon_spin.setRange(1, 3)
+        self.horizon_spin.setValue(1)
+        
+        # Create tabs
+        self.tab_widget.addTab(self._create_route_tab(), "Routing")
+        self.tab_widget.addTab(self._create_prediction_tab(), "Prediction")
+        self.tab_widget.addTab(self._create_settings_tab(), "Settings")
+        
+        # Set dark theme as default
+        if hasattr(self, 'theme_combo') and self.theme_combo is not None:
+            self.theme_combo.setCurrentText("Dark")
+            self.apply_theme("Dark")
+        
+        # Initialize site dropdowns after all UI elements are created
+        QTimer.singleShot(100, self._delayed_initialize_sites)
+        
+        # Connect signals
+        self.prediction_result_signal.connect(self._update_prediction_result)
+        self.training_status_signal.connect(self._update_training_status)
+        self.training_progress_signal.connect(self._update_training_progress)
+        self.training_done_signal.connect(self._on_training_done)
+        
+        # Initialize ORS cache
+        self.ors_cache = {}
+        
+        # Initialize map view
+        self.map_view = QWebEngineView()
+        self.map_view.setMinimumHeight(400)
+        self.map_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # Hide route summary row on Prediction tab
         def handle_tab_change(idx):
@@ -146,10 +180,6 @@ class MainWindow(QMainWindow):
         
         # Show window
         self.show()
-
-        self.prediction_result_signal.connect(self._update_prediction_result)
-
-        self.ors_cache = {}  # Cache for ORS polyline results
 
     def _delayed_initialize_sites(self):
         """Initialize site dropdowns with a delay to ensure proper widget creation."""
@@ -165,11 +195,11 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'origin_combo'):
                 self.origin_combo.clear()
                 self.combo_boxes.append(self.origin_combo)
-            for _, row in sites.iterrows():
-                display_text = f"{row['site_id']} - {row['Location']}"
-                self.origin_combo.addItem(display_text)
-            if self.origin_combo.count() > 0:
-                self.origin_combo.setCurrentIndex(0)
+                for _, row in sites.iterrows():
+                    display_text = f"{row['site_id']} - {row['Location']}"
+                    self.origin_combo.addItem(display_text)
+                if self.origin_combo.count() > 0:
+                    self.origin_combo.setCurrentIndex(0)
             
             if hasattr(self, 'dest_combo'):
                 self.dest_combo.clear()
@@ -177,8 +207,8 @@ class MainWindow(QMainWindow):
                 for _, row in sites.iterrows():
                     display_text = f"{row['site_id']} - {row['Location']}"
                     self.dest_combo.addItem(display_text)
-            if self.dest_combo.count() > 0:
-                self.dest_combo.setCurrentIndex(0)
+                if self.dest_combo.count() > 0:
+                    self.dest_combo.setCurrentIndex(0)
             
             # Populate waypoints list
             if hasattr(self, 'waypoints_list'):
@@ -1219,10 +1249,10 @@ class MainWindow(QMainWindow):
         site_label = QLabel("Site:")
         site_label.setStyleSheet("color:#fff;")
         sidebar_layout.addWidget(site_label)
-        site_combo = QComboBox()
+        self.site_combo = QComboBox()
         site_options = [f"{row['site_id']} - {row['Location']}" for _, row in self.df[['site_id', 'Location']].drop_duplicates().sort_values('site_id').iterrows()]
-        site_combo.addItems(site_options)
-        sidebar_layout.addWidget(site_combo)
+        self.site_combo.addItems(site_options)
+        sidebar_layout.addWidget(self.site_combo)
 
         # Date input
         date_label = QLabel("Date:")
@@ -1240,13 +1270,14 @@ class MainWindow(QMainWindow):
         def update_date_range_for_site():
             import os
             import pandas as pd
-            site_id = site_combo.currentText().split(' - ')[0]
+            site_id = self.site_combo.currentText().split(' - ')[0]
             csv_path = f"data/scats_{site_id}.csv"
             if os.path.exists(csv_path):
                 df_site = pd.read_csv(csv_path)
                 n_days = len(df_site) // 96
                 min_date = pd.to_datetime("2006-10-01")
                 max_date = min_date + pd.Timedelta(days=n_days-1)
+                # Only allow dates for which there is enough data
                 date_input.setMinimumDate(min_date)
                 date_input.setMaximumDate(max_date)
                 # If current date is out of range, reset to min_date and show a message
@@ -1261,7 +1292,7 @@ class MainWindow(QMainWindow):
                 date_input.setMinimumDate(QDate(2000, 1, 1))
                 date_input.setMaximumDate(QDate(2100, 1, 1))
                 progress_label.setText(f"No data file for site {site_id}")
-        site_combo.currentIndexChanged.connect(update_date_range_for_site)
+        self.site_combo.currentIndexChanged.connect(update_date_range_for_site)
         update_date_range_for_site()
 
         # Time input
@@ -1289,12 +1320,21 @@ class MainWindow(QMainWindow):
         self.cnn_checkbox.setChecked(False)
 
         # Train Models button and progress label
-        train_btn = QPushButton("Train Models")
-        sidebar_layout.addWidget(train_btn)
-        cancel_btn = QPushButton("Cancel Training")
-        cancel_btn.setStyleSheet("QPushButton { background: #e74c3c; color: #fff; font-size: 17px; font-weight: bold; border-radius: 8px; padding: 12px 0; margin-top: 4px; margin-bottom: 8px; } QPushButton:hover { background: #ff6f61; }")
-        sidebar_layout.addWidget(cancel_btn)
-        cancel_btn.setVisible(False)  # Hide by default
+        self.train_btn = QPushButton("Train Models")
+        self.train_btn.clicked.connect(self.train_models_for_site)  # Connect to train_models_for_site
+        sidebar_layout.addWidget(self.train_btn)
+        # (QVBoxLayout, QWidget already imported at top)
+        self.cancel_btn = QPushButton("Cancel Training")
+        self.cancel_btn.setStyleSheet("QPushButton { background: #e74c3c; color: #fff; font-size: 20px; font-weight: bold; border-radius: 18px; padding: 18px 0; margin: 0 0 18px 0; } QPushButton:hover { background: #ff6f61; }")
+        self.cancel_btn.setMinimumHeight(54)
+        self.cancel_btn.setVisible(False)  # Hide by default
+        # Dedicated bottom container for the button
+        bottom_btn_container = QWidget()
+        bottom_btn_layout = QVBoxLayout(bottom_btn_container)
+        bottom_btn_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_btn_layout.addWidget(self.cancel_btn)
+        sidebar_layout.addStretch(1)  # Push everything else up
+        sidebar_layout.addWidget(bottom_btn_container)
         self.progress_label = QLabel()
         self.progress_label.setStyleSheet("color:#7ecfff; font-size:15px;")
         sidebar_layout.addWidget(self.progress_label)
@@ -1307,12 +1347,19 @@ class MainWindow(QMainWindow):
         graph_layout.setSpacing(0)
         self.graph_label = QLabel()
         self.graph_label.setAlignment(Qt.AlignCenter)
+        self.graph_label.setScaledContents(True)
+        self.graph_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         graph_layout.addWidget(self.graph_label)
-        # Add a plain metrics label below the graph
-        self.metrics_label = QLabel()
-        self.metrics_label.setAlignment(Qt.AlignCenter)
-        self.metrics_label.setStyleSheet("color:#bbb; font-size:16px; margin-top:18px;")
-        graph_layout.addWidget(self.metrics_label)
+        # Add a horizontal summary bar for prediction metrics (like route summary)
+        self.prediction_summary_row = QFrame()
+        self.prediction_summary_row.setStyleSheet("background: #23272b; border-radius: 16px; margin: 0; padding: 0; min-height: 60px;")
+        self.prediction_summary_row.setMinimumHeight(60)
+        self.prediction_summary_row.setMaximumHeight(80)
+        self.prediction_summary_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.prediction_summary_row_layout = QHBoxLayout(self.prediction_summary_row)
+        self.prediction_summary_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.prediction_summary_row_layout.setSpacing(0)
+        graph_layout.addWidget(self.prediction_summary_row)
         main_layout.addWidget(sidebar)
         main_layout.addWidget(graph_widget, 1)
 
@@ -1326,12 +1373,20 @@ class MainWindow(QMainWindow):
 
         # --- Hide graph and metrics by default ---
         self.graph_label.clear()
-        self.metrics_label.clear()
+        # Clear the prediction summary row
+        for i in reversed(range(self.prediction_summary_row_layout.count())):
+            widget = self.prediction_summary_row_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
 
         def clear_graph_and_metrics():
             self.graph_label.clear()
-            self.metrics_label.clear()
-        site_combo.currentIndexChanged.connect(clear_graph_and_metrics)
+            # Clear the prediction summary row
+            for i in reversed(range(self.prediction_summary_row_layout.count())):
+                widget = self.prediction_summary_row_layout.itemAt(i).widget()
+                if widget:
+                    widget.setParent(None)
+        self.site_combo.currentIndexChanged.connect(clear_graph_and_metrics)
         date_input.dateChanged.connect(clear_graph_and_metrics)
         time_input.timeChanged.connect(clear_graph_and_metrics)
         self.lstm_checkbox.toggled.connect(clear_graph_and_metrics)
@@ -1342,50 +1397,12 @@ class MainWindow(QMainWindow):
         def show_daily_traffic():
             self.progress_label.setText("")
             self.graph_label.clear()
-            self.metrics_label.clear()
-            import matplotlib
-            matplotlib.use('Agg')
-            import matplotlib.pyplot as plt
-            import io
-            from PyQt5.QtGui import QPixmap
-            import numpy as np
-            import pandas as pd
-            import matplotlib.dates as mdates
-            import os
-            site_text = site_combo.currentText()
-            site_id = site_text.split(' - ')[0]
-            date_str = date_input.date().toString("yyyy-MM-dd")
-            time_str = time_input.time().toString("HH:mm")
-            csv_path = f"data/scats_{site_id}.csv"
-            if not os.path.exists(csv_path):
-                self.graph_label.setText(f"<span style='color:#f55;'>No data file for site {site_id}</span>")
-                self.metrics_label.setText("")
-                return
-            df_site = pd.read_csv(csv_path)
-            # Assume 15-min intervals, 96 rows per day, starting from 2006-10-01
-            start_date = pd.to_datetime("2006-10-01")
-            n_days = len(df_site) // 96
-            min_date = start_date
-            max_date = min_date + pd.Timedelta(days=n_days-1)
-            selected_date = pd.to_datetime(date_str)
-            day_idx = (selected_date - start_date).days
-            start_row = day_idx * 96
-            end_row = start_row + 96
-            # --- New: Start from selected time ---
-            selected_time = pd.to_datetime(time_str)
-            start_hour = selected_time.hour
-            start_minute = selected_time.minute
-            # Each 15-min interval is one row
-            time_offset = start_hour * 4 + start_minute // 15
-            plot_start = start_row + time_offset
-            plot_end = end_row
-            if plot_start >= end_row:
-                self.graph_label.setText(f"<span style='color:#f55;'>Selected time is out of range for this day.</span>")
-                self.metrics_label.setText("")
-                return
-            day_volumes = df_site['Volume'].iloc[plot_start:plot_end].values
-            times = pd.date_range(selected_date + pd.Timedelta(minutes=time_offset*15), periods=len(day_volumes), freq='15min')
-            # Prepare predictions for selected models
+            # Clear the prediction summary row
+            for i in reversed(range(self.prediction_summary_row_layout.count())):
+                widget = self.prediction_summary_row_layout.itemAt(i).widget()
+                if widget:
+                    widget.setParent(None)
+            # Get selected models
             selected_models = []
             if self.lstm_checkbox.isChecked():
                 selected_models.append("LSTM")
@@ -1395,79 +1412,57 @@ class MainWindow(QMainWindow):
                 selected_models.append("CNN")
             if not selected_models:
                 self.graph_label.setText("<span style='color:#f55;'>Please select at least one model.</span>")
-                self.metrics_label.setText("")
+                self.prediction_summary_row_layout.addWidget(QLabel('<span style="color:#f55; font-size:16px;">No models selected</span>'))
                 return
-            plt.figure(figsize=(12, 5))
-            plt.plot(times, day_volumes, label='True Flow', color='black', linewidth=2)
-            model_styles = {
-                'LSTM': {'color': 'green', 'linestyle': '--', 'label': 'LSTM Prediction'},
-                'GRU': {'color': 'orange', 'linestyle': '--', 'label': 'GRU Prediction'},
-                'CNN': {'color': 'blue', 'linestyle': '--', 'label': 'CNN Prediction'},
-            }
-            metrics_html = ""
-            for selected_model in selected_models:
-                model_file = f"{selected_model.lower()}_site_{site_id}.h5"
-                if os.path.exists(model_file):
-                    from tensorflow.keras.models import load_model
-                    from sklearn.preprocessing import MinMaxScaler
-                    norm_path = f"data/scats_{site_id}_normalized.csv"
-                    if not os.path.exists(norm_path):
-                        self.graph_label.setText(f"<span style='color:#f55;'>No normalized data for site {site_id}</span>")
-                        self.metrics_label.setText("")
-                        return
-                    norm_df = pd.read_csv(norm_path)
-                    data = norm_df['normalized_volume'].values
-                    window_size = 96
-                    if len(data) < (day_idx+1)*96:
-                        self.graph_label.setText(f"<span style='color:#f55;'>Not enough data for prediction.</span>")
-                        self.metrics_label.setText("")
-                        return
-                    X = []
-                    for i in range(plot_start, plot_end):
-                        if i-window_size < 0:
-                            X.append(np.zeros((window_size, 1)))
-                        else:
-                            X.append(data[i-window_size:i].reshape(window_size, 1))
-                    X = np.array(X)
-                    model_obj = load_model(model_file, compile=False)
-                    preds = model_obj.predict(X, verbose=0).flatten()
-                    raw_path = f"data/scats_{site_id}.csv"
-                    scaler = MinMaxScaler()
-                    scaler.fit(pd.read_csv(raw_path)[['Volume']])
-                    preds_inv = scaler.inverse_transform(preds.reshape(-1, 1)).flatten()
-                    plt.plot(times, preds_inv, color=model_styles[selected_model]['color'], linestyle=model_styles[selected_model]['linestyle'], label=model_styles[selected_model]['label'])
-                    # Compute metrics
-                    mae, rmse, r2 = compute_metrics(day_volumes, preds_inv)
-                    metrics_html += f"<div style='display:inline-block; min-width:120px; margin-right:18px;'><b style='color:{model_styles[selected_model]['color']}'>{selected_model}</b><br>MAE: <b>{mae:.2f}</b><br>RMSE: <b>{rmse:.2f}</b><br>R²: <b>{r2:.3f}</b></div>"
-                else:
-                    # Show a message prompting the user to train the model
-                    metrics_html += f"<div style='display:inline-block; min-width:120px; margin-right:18px; color:#f55;'><b>{selected_model} not trained</b><br>Please train this model for predictions.</div>"
-            plt.xlabel('Time of Day')
-            plt.ylabel('Vehicles per Hour')
-            plt.title(f'Model Comparison at Site {site_id} – {date_str}')
-            plt.legend(loc='upper right', fontsize=12, frameon=True, facecolor='#fff', edgecolor='#888')
-            plt.grid(True, linestyle='--', alpha=0.5)
-            ax = plt.gca()
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-            plt.xticks(fontsize=12)
-            plt.yticks(fontsize=12)
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            plt.tight_layout()
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', bbox_inches='tight')
-            plt.close()
-            buf.seek(0)
-            qimg = QPixmap()
-            qimg.loadFromData(buf.getvalue())
-            self.graph_label.clear()  # Remove placeholder label
-            self.graph_label.setPixmap(qimg)
-            self.metrics_label.setText(metrics_html)
-            self.graph_label.setToolTip('')
-        train_btn.clicked.connect(show_daily_traffic)
-        cancel_btn.clicked.connect(self.cancel_training)
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import io
+            from PyQt5.QtGui import QPixmap
+            import numpy as np
+            import pandas as pd
+            import matplotlib.dates as mdates
+            import os
+            site_text = self.site_combo.currentText()
+            site_id = site_text.split(' - ')[0]
+            date_input = self.findChild(QDateEdit)
+            time_input = self.findChild(QTimeEdit)
+            # --- Move date/time calculations here ---
+            date_str = date_input.date().toString("yyyy-MM-dd") if date_input else ""
+            time_str = time_input.time().toString("HH:mm") if time_input else ""
+            csv_path = f"data/scats_{site_id}.csv"
+            print("csv_path:", csv_path)
+            if not os.path.exists(csv_path):
+                print("csv_path does not exist:", csv_path)
+                self.graph_label.setText(f"<span style='color:#f55;'>No data file for site {site_id}</span>")
+                self.prediction_summary_row_layout.addWidget(QLabel('<span style="color:#f55; font-size:16px;">No data available</span>'))
+                return
+            df_site = pd.read_csv(csv_path)
+            start_date = pd.to_datetime("2006-10-01")
+            n_days = len(df_site) // 96
+            min_date = start_date
+            max_date = min_date + pd.Timedelta(days=n_days-1)
+            selected_date = pd.to_datetime(date_str)
+            day_idx = (selected_date - start_date).days
+            start_row = day_idx * 96
+            end_row = start_row + 96
+            selected_time = pd.to_datetime(time_str)
+            start_hour = selected_time.hour
+            start_minute = selected_time.minute
+            time_offset = start_hour * 4 + start_minute // 15
+            plot_start = start_row + time_offset
+            plot_end = end_row
+            if plot_start >= end_row:
+                print("Selected time is out of range for this day.")
+                self.graph_label.setText(f"<span style='color:#f55;'>Selected time is out of range for this day.</span>")
+                self.prediction_summary_row_layout.addWidget(QLabel('<span style=\"color:#f55; font-size:16px;\">Selected time is out of range</span>'))
+                return
+            day_volumes = df_site['Volume'].iloc[plot_start:plot_end].values
+            times = pd.date_range(selected_date + pd.Timedelta(minutes=time_offset*15), periods=len(day_volumes), freq='15min')
+            # --- End move ---
+            # ... rest of your code ...
 
-        show_daily_traffic()
+        self.cancel_btn.clicked.connect(self.cancel_training)
         return main_widget
 
     def cancel_training(self):
@@ -1476,3 +1471,299 @@ class MainWindow(QMainWindow):
         # Hide the cancel button after cancelling
         if hasattr(self, 'cancel_btn'):
             self.cancel_btn.setVisible(False)
+
+    def train_models_for_site(self):
+        print("Train Models button clicked!")
+        import threading
+        import os
+        import numpy as np
+        import pandas as pd
+        from lstm_model import train_lstm_model
+        from gru_model import train_gru_model
+        from cnn_model import train_cnn_model
+        import logging
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        site_text = self.site_combo.currentText()
+        site_id = site_text.split(' - ')[0]
+        csv_path = f"data/scats_{site_id}.csv"
+        norm_path = f"data/scats_{site_id}_normalized.csv"
+        selected_models = []
+        if self.lstm_checkbox.isChecked():
+            selected_models.append("LSTM")
+        if self.gru_checkbox.isChecked():
+            selected_models.append("GRU")
+        if self.cnn_checkbox.isChecked():
+            selected_models.append("CNN")
+        print(f"Selected models: {selected_models}")
+        if not selected_models:
+            print("No models selected. Training will not start.")
+            self.training_status_signal.emit("No models selected. Please select at least one model.")
+            return
+        if not os.path.exists(csv_path):
+            print(f"No data file for site {site_id}. Training will not start.")
+            self.training_status_signal.emit(f"No data file for site {site_id}")
+            return
+        if not os.path.exists(norm_path):
+            df = pd.read_csv(csv_path)
+            from sklearn.preprocessing import MinMaxScaler
+            scaler = MinMaxScaler()
+            norm = scaler.fit_transform(df['Volume'].values.reshape(-1, 1))
+            pd.DataFrame({'normalized_volume': norm}).to_csv(norm_path, index=False)
+        def train_all():
+            print("Training thread started!")
+            self.cancel_btn.setVisible(True)
+            self.train_btn.setEnabled(False)
+            any_trained = False
+            epochs = 30  # Set to 30 epochs for all models
+            # Clear previous training status
+            for i in reversed(range(self.prediction_summary_row_layout.count())):
+                widget = self.prediction_summary_row_layout.itemAt(i).widget()
+                if widget:
+                    widget.setParent(None)
+            if self.lstm_checkbox.isChecked():
+                print("Starting LSTM training...")
+                self.training_status_signal.emit("Training LSTM...")
+                try:
+                    train_lstm_model(norm_path, output_path=f"models/lstm_site_{site_id}.h5", window_size=96, epochs=epochs, cancel_func=lambda: self._cancel_training_requested)
+                    any_trained = True
+                    print("LSTM training complete!")
+                    self.training_status_signal.emit("LSTM training complete!")
+                except Exception as e:
+                    logging.error(f"LSTM training error: {str(e)}")
+                    print(f"LSTM training error: {str(e)}")
+                    self.training_status_signal.emit(f"LSTM training error: {str(e)}")
+                    self.training_done_signal.emit()
+                    return
+                if self._cancel_training_requested:
+                    print("Training cancelled during LSTM.")
+                    self.training_status_signal.emit("Training cancelled.")
+                    self.training_done_signal.emit()
+                    return
+            if self.gru_checkbox.isChecked():
+                print("Starting GRU training...")
+                self.training_status_signal.emit("Training GRU...")
+                try:
+                    train_gru_model(norm_path, output_path=f"models/gru_site_{site_id}.h5", window_size=96, epochs=epochs)
+                    any_trained = True
+                    print("GRU training complete!")
+                    self.training_status_signal.emit("GRU training complete!")
+                except Exception as e:
+                    logging.error(f"GRU training error: {str(e)}")
+                    print(f"GRU training error: {str(e)}")
+                    self.training_status_signal.emit(f"GRU training error: {str(e)}")
+                    self.training_done_signal.emit()
+                    return
+                if self._cancel_training_requested:
+                    print("Training cancelled during GRU.")
+                    self.training_status_signal.emit("Training cancelled.")
+                    self.training_done_signal.emit()
+                    return
+            if self.cnn_checkbox.isChecked():
+                print("Starting CNN training...")
+                self.training_status_signal.emit("Training CNN...")
+                try:
+                    train_cnn_model(norm_path, output_path=f"models/cnn_site_{site_id}.h5", window_size=96, epochs=epochs)
+                    any_trained = True
+                    print("CNN training complete!")
+                    self.training_status_signal.emit("CNN training complete!")
+                except Exception as e:
+                    logging.error(f"CNN training error: {str(e)}")
+                    print(f"CNN training error: {str(e)}")
+                    self.training_status_signal.emit(f"CNN training error: {str(e)}")
+                    self.training_done_signal.emit()
+                    return
+                if self._cancel_training_requested:
+                    print("Training cancelled during CNN.")
+                    self.training_status_signal.emit("Training cancelled.")
+                    self.training_done_signal.emit()
+                    return
+            if any_trained:
+                print("All selected models trained successfully!")
+                self.training_status_signal.emit("All selected models trained successfully!")
+            else:
+                print("No models were trained.")
+                self.training_status_signal.emit("No models selected for training.")
+            self.training_done_signal.emit()
+        threading.Thread(target=train_all, daemon=True).start()
+        self.train_btn.setEnabled(False)
+
+    def compute_metrics(self, y_true, y_pred):
+        import numpy as np
+        from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        r2 = r2_score(y_true, y_pred)
+        return mae, rmse, r2
+
+    def show_daily_traffic(self):
+        print("show_daily_traffic called")
+        self.progress_label.setText("")
+        self.graph_label.clear()
+        # Clear the prediction summary row
+        for i in reversed(range(self.prediction_summary_row_layout.count())):
+            widget = self.prediction_summary_row_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+        # Get selected models
+        selected_models = []
+        if self.lstm_checkbox.isChecked():
+            selected_models.append("LSTM")
+        if self.gru_checkbox.isChecked():
+            selected_models.append("GRU")
+        if self.cnn_checkbox.isChecked():
+            selected_models.append("CNN")
+        if not selected_models:
+            print("No models selected, returning early.")
+            self.graph_label.setText("<span style='color:#f55;'>Please select at least one model.</span>")
+            self.prediction_summary_row_layout.addWidget(QLabel('<span style=\"color:#f55; font-size:16px;\">No models selected</span>'))
+            return
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import io
+        from PyQt5.QtGui import QPixmap
+        import numpy as np
+        import pandas as pd
+        import matplotlib.dates as mdates
+        import os
+        site_text = self.site_combo.currentText()
+        site_id = site_text.split(' - ')[0]
+        date_input = self.findChild(QDateEdit)
+        time_input = self.findChild(QTimeEdit)
+        # --- Move date/time calculations here ---
+        date_str = date_input.date().toString("yyyy-MM-dd") if date_input else ""
+        time_str = time_input.time().toString("HH:mm") if time_input else ""
+        csv_path = f"data/scats_{site_id}.csv"
+        print("csv_path:", csv_path)
+        if not os.path.exists(csv_path):
+            print("csv_path does not exist:", csv_path)
+            self.graph_label.setText(f"<span style='color:#f55;'>No data file for site {site_id}</span>")
+            self.prediction_summary_row_layout.addWidget(QLabel('<span style="color:#f55; font-size:16px;">No data available</span>'))
+            return
+        df_site = pd.read_csv(csv_path)
+        start_date = pd.to_datetime("2006-10-01")
+        n_days = len(df_site) // 96
+        min_date = start_date
+        max_date = min_date + pd.Timedelta(days=n_days-1)
+        selected_date = pd.to_datetime(date_str)
+        day_idx = (selected_date - start_date).days
+        start_row = day_idx * 96
+        end_row = start_row + 96
+        selected_time = pd.to_datetime(time_str)
+        start_hour = selected_time.hour
+        start_minute = selected_time.minute
+        time_offset = start_hour * 4 + start_minute // 15
+        plot_start = start_row + time_offset
+        plot_end = end_row
+        if plot_start >= end_row:
+            print("Selected time is out of range for this day.")
+            self.graph_label.setText(f"<span style='color:#f55;'>Selected time is out of range for this day.</span>")
+            self.prediction_summary_row_layout.addWidget(QLabel('<span style=\"color:#f55; font-size:16px;\">Selected time is out of range</span>'))
+            return
+        day_volumes = df_site['Volume'].iloc[plot_start:plot_end].values
+        times = pd.date_range(selected_date + pd.Timedelta(minutes=time_offset*15), periods=len(day_volumes), freq='15min')
+        # --- End move ---
+        plt.figure(figsize=(14, 7))
+        plt.plot(times, day_volumes, label='True Flow', color='black', linewidth=2)
+        model_styles = {
+            'LSTM': {'color': 'green', 'linestyle': '--', 'label': 'LSTM Prediction'},
+            'GRU': {'color': 'orange', 'linestyle': '--', 'label': 'GRU Prediction'},
+            'CNN': {'color': 'blue', 'linestyle': '--', 'label': 'CNN Prediction'},
+        }
+        metrics_html = ""
+        for selected_model in selected_models:
+            print(f"Processing model: {selected_model}")
+            model_path = f"models/{selected_model.lower()}_site_{site_id}.h5"
+            if not os.path.exists(model_path):
+                print(f"Model file does not exist: {model_path}")
+                metrics_html += f"<div style='display:inline-block; min-width:120px; text-align:center; color:#f55;'>" \
+                              f"<b>{selected_model} not trained</b><br>Please train this model for predictions.</div>"
+                continue
+            from tensorflow.keras.models import load_model
+            from sklearn.preprocessing import MinMaxScaler
+            norm_path = f"data/scats_{site_id}_normalized.csv"
+            print("norm_path:", norm_path)
+            if not os.path.exists(norm_path):
+                print("norm_path does not exist:", norm_path)
+                self.graph_label.setText(f"<span style='color:#f55;'>No normalized data for site {site_id}</span>")
+                self.prediction_summary_row_layout.addWidget(QLabel('<span style=\"color:#f55; font-size:16px;\">No normalized data</span>'))
+                continue
+            norm_df = pd.read_csv(norm_path)
+            data = norm_df['normalized_volume'].values
+            print("len(data):", len(data))
+            window_size = 96
+            if len(data) < (day_idx+1)*96:
+                print("Not enough data for prediction. len(data):", len(data), "required:", (day_idx+1)*96)
+                self.graph_label.setText(f"<span style='color:#f55;'>Not enough data for prediction.</span>")
+                self.prediction_summary_row_layout.addWidget(QLabel('<span style=\"color:#f55; font-size:16px;\">Not enough data</span>'))
+                continue
+            X = []
+            for i in range(plot_start, plot_end):
+                if i-window_size < 0:
+                    X.append(np.zeros((window_size, 1)))
+                else:
+                    X.append(data[i-window_size:i].reshape(window_size, 1))
+            X = np.array(X)
+            model_obj = load_model(model_path, compile=False)
+            model_obj.compile(optimizer='adam', loss='mse')
+            preds = model_obj.predict(X, verbose=0).flatten()
+            raw_path = f"data/scats_{site_id}.csv"
+            scaler = MinMaxScaler()
+            scaler.fit(pd.read_csv(raw_path)[['Volume']])
+            preds_inv = scaler.inverse_transform(preds.reshape(-1, 1)).flatten()
+            print("day_volumes shape:", day_volumes.shape)
+            print("preds_inv shape:", preds_inv.shape)
+            plt.plot(times, preds_inv, color=model_styles[selected_model]['color'], 
+                    linestyle=model_styles[selected_model]['linestyle'], 
+                    label=model_styles[selected_model]['label'])
+            mae, rmse, r2 = self.compute_metrics(day_volumes, preds_inv)
+            metrics_html += f"<div style='display:inline-block; min-width:120px; text-align:center;'>" \
+                          f"<b style='color:{model_styles[selected_model]['color']}'>{selected_model}</b><br>" \
+                          f"MAE: <b>{mae:.2f}</b><br>RMSE: <b>{rmse:.2f}</b><br>R²: <b>{r2:.3f}</b></div>"
+        plt.xlabel('Time of Day')
+        plt.ylabel('Vehicles per Hour')
+        plt.title(f'Model Comparison at Site {site_id} – {date_str}')
+        plt.legend(loc='best', fontsize=12, frameon=True, facecolor='#fff', edgecolor='#888')
+        plt.grid(True, linestyle='--', alpha=0.5)
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.90, bottom=0.15, left=0.10, right=0.98)
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close()
+        buf.seek(0)
+        qimg = QPixmap()
+        qimg.loadFromData(buf.getvalue())
+        self.graph_label.clear()
+        self.graph_label.setPixmap(qimg)
+        print("Pixmap set on graph_label")
+        self.graph_label.show()
+        self.prediction_summary_row_layout.addWidget(QLabel(metrics_html))
+
+    def _update_training_status(self, msg):
+        # Clear previous status labels
+        for i in reversed(range(self.prediction_summary_row_layout.count())):
+            widget = self.prediction_summary_row_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+        # Show status in the prediction summary row as a QLabel
+        self.prediction_summary_row_layout.addWidget(QLabel(f'<span style="color:#7ecfff; font-size:16px;">{msg}</span>'))
+    def _update_training_progress(self, msg):
+        # Show progress in the prediction summary row as a QLabel
+        self.prediction_summary_row_layout.addWidget(QLabel(f'<span style="color:#7ecfff; font-size:16px;">{msg}</span>'))
+    def _on_training_done(self):
+        self.train_btn.setText("Show Daily Traffic")
+        self.train_btn.setEnabled(True)
+        self.cancel_btn.setVisible(False)
+        self._cancel_training_requested = False
+        try:
+            self.train_btn.clicked.disconnect()
+        except Exception:
+            pass
+        self.train_btn.clicked.connect(self.show_daily_traffic)
+        self.show_daily_traffic()

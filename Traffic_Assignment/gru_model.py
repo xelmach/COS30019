@@ -12,6 +12,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import GRU, Dense
 from sklearn.model_selection import train_test_split
 from tensorflow.keras import Input
+from tensorflow.keras.callbacks import EarlyStopping
 
 class GRUModel(BaseModel):
     def __init__(self, config):
@@ -35,6 +36,8 @@ class GRUModel(BaseModel):
         if self.model is None:
             self.build_model(X_train.shape[1:])
         callbacks = [progress_callback] if progress_callback else []
+        early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+        callbacks.append(early_stopping)
         self.history = self.model.fit(
             X_train, y_train,
             validation_data=(X_val, y_val),

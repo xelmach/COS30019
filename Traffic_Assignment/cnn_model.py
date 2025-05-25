@@ -7,6 +7,7 @@ from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 import os
 from tensorflow.keras import Input
+from tensorflow.keras.callbacks import EarlyStopping
 
 class CNNModel:
     def __init__(self, window_size=12):
@@ -36,7 +37,8 @@ class CNNModel:
 
     def train(self, X_train, y_train, X_val, y_val, epochs=20, batch_size=32):
         self.build_model(input_shape=(X_train.shape[1], 1))
-        self.model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(X_val, y_val), verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+        self.model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=(X_val, y_val), verbose=1, callbacks=[early_stopping])
 
     def predict(self, X):
         return self.model.predict(X)

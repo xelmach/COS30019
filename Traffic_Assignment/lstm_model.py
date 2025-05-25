@@ -10,6 +10,15 @@ import os
 from tensorflow.keras import Input
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.callbacks import EarlyStopping
+
+class CancelTrainingCallback(tf.keras.callbacks.Callback):
+    def __init__(self, should_stop_func):
+        super().__init__()
+        self.should_stop_func = should_stop_func
+    def on_epoch_end(self, epoch, logs=None):
+        if self.should_stop_func():
+            self.model.stop_training = True
 
 class LSTMModel(BaseModel):
     def __init__(self, config):
@@ -29,10 +38,16 @@ class LSTMModel(BaseModel):
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])
         self.model = model
 
-    def train(self, X_train, y_train, X_val, y_val, progress_callback=None, epochs=10):
+    def train(self, X_train, y_train, X_val, y_val, progress_callback=None, cancel_callback=None, epochs=10):
         if self.model is None:
             self.build_model(X_train.shape[1:])
-        callbacks = [progress_callback] if progress_callback else []
+        callbacks = []
+        if progress_callback:
+            callbacks.append(progress_callback)
+        if cancel_callback:
+            callbacks.append(cancel_callback)
+        early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+        callbacks.append(early_stopping)
         self.history = self.model.fit(
             X_train, y_train,
             validation_data=(X_val, y_val),
@@ -173,7 +188,7 @@ class LSTMModel(BaseModel):
             
         return np.array(predictions)
 
-def train_lstm_model(input_path, output_path, window_size=12, epochs=50):
+def train_lstm_model(input_path, output_path, window_size=12, epochs=50, cancel_func=None):
     """Train an LSTM model on the given data.
     
     Args:
@@ -215,7 +230,8 @@ def train_lstm_model(input_path, output_path, window_size=12, epochs=50):
     }
     model = LSTMModel(config)
     model.build_model(input_shape=(window_size, 1))
-    model.train(X_train, y_train, X_test, y_test, epochs=epochs)
+    cancel_callback = CancelTrainingCallback(cancel_func) if cancel_func else None
+    model.train(X_train, y_train, X_test, y_test, epochs=epochs, cancel_callback=cancel_callback)
     
     # Make predictions
     y_pred = model.predict(X_test)
@@ -227,8 +243,8 @@ def train_lstm_model(input_path, output_path, window_size=12, epochs=50):
     # Calculate RMSE
     rmse = np.sqrt(np.mean((y_test - y_pred) ** 2))
     
-    # Save predictions
-    np.save(output_path, y_pred)
+    # Save the trained model
+    model.model.save(output_path)
     
     # Plot results
     # model.plot_predictions(X_test, y_test)
